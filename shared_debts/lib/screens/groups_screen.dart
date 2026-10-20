@@ -1,0 +1,13 @@
+import 'package:flutter/material.dart';
+
+class GroupsScreen extends StatelessWidget {
+  const GroupsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Your groups')),
+      body: const Center(child: Text('Your groups will appear here.')),
+    );
+  }
+}
