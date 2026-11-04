@@ -1,30 +1,53 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:shared_debts/main.dart';
+import 'package:shared_debts/app.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('Validation error when group name is empty', (tester) async {
+    await tester.pumpWidget(const SharedDebtsApp());
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // Tap Create with empty input
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(find.text('Enter a group name'), findsOneWidget);
+    expect(find.text('Create a group'), findsOneWidget);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('Create a Shared group', (tester) async {
+    await tester.pumpWidget(const SharedDebtsApp());
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField), 'Apartment Expenses');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    // Dialog should be closed
+    expect(find.text('Create a group'), findsNothing);
+    // Group should be visible on page
+    expect(find.text('Apartment Expenses'), findsOneWidget);
+    expect(find.text('Shared group · 1 member'), findsOneWidget);
+  });
+
+  testWidgets('Create a Trip group', (tester) async {
+    await tester.pumpWidget(const SharedDebtsApp());
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField), 'Ella Trip');
+    await tester.tap(find.text('Trip'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+
+    // Dialog should be closed
+    expect(find.text('Create a group'), findsNothing);
+    // Group should be visible on page
+    expect(find.text('Ella Trip'), findsOneWidget);
+    expect(find.text('Trip · 1 member'), findsOneWidget);
   });
 }

@@ -13,97 +13,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
   final List<Group> _groups = [];
 
   Future<void> _createGroup() async {
-    final nameController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    var selectedKind = GroupKind.shared;
-
     final newGroup = await showDialog<Group>(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('Create a group'),
-              content: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextFormField(
-                      controller: nameController,
-                      autofocus: true,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        labelText: 'Group name',
-                        hintText: 'For example, Ella Trip',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Enter a group name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    const Text('Group type'),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<GroupKind>(
-                        segments: const [
-                          ButtonSegment(
-                            value: GroupKind.shared,
-                            label: Text('Shared'),
-                            icon: Icon(Icons.groups_outlined),
-                          ),
-                          ButtonSegment(
-                            value: GroupKind.trip,
-                            label: Text('Trip'),
-                            icon: Icon(Icons.flight_takeoff_outlined),
-                          ),
-                        ],
-                        selected: {selectedKind},
-                        onSelectionChanged: (selection) {
-                          setDialogState(() {
-                            selectedKind = selection.first;
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) return;
-
-                    Navigator.pop(
-                      dialogContext,
-                      Group(
-                        id: DateTime.now().microsecondsSinceEpoch.toString(),
-                        name: nameController.text.trim(),
-                        kind: selectedKind,
-                        memberCount: 1,
-                      ),
-                    );
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (dialogContext) => const _CreateGroupDialog(),
     );
-
-    nameController.dispose();
 
     if (!mounted || newGroup == null) return;
 
@@ -187,6 +100,107 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _CreateGroupDialog extends StatefulWidget {
+  const _CreateGroupDialog();
+
+  @override
+  State<_CreateGroupDialog> createState() => _CreateGroupDialogState();
+}
+
+class _CreateGroupDialogState extends State<_CreateGroupDialog> {
+  final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  var _selectedKind = GroupKind.shared;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+
+    Navigator.pop(
+      context,
+      Group(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        name: _nameController.text.trim(),
+        kind: _selectedKind,
+        memberCount: 1,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create a group'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextFormField(
+              controller: _nameController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Group name',
+                hintText: 'For example, Ella Trip',
+                border: OutlineInputBorder(),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Enter a group name';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 20),
+            const Text('Group type'),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<GroupKind>(
+                segments: const [
+                  ButtonSegment(
+                    value: GroupKind.shared,
+                    label: Text('Shared'),
+                    icon: Icon(Icons.groups_outlined),
+                  ),
+                  ButtonSegment(
+                    value: GroupKind.trip,
+                    label: Text('Trip'),
+                    icon: Icon(Icons.flight_takeoff_outlined),
+                  ),
+                ],
+                selected: {_selectedKind},
+                onSelectionChanged: (selection) {
+                  setState(() {
+                    _selectedKind = selection.first;
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
     );
   }
 }
