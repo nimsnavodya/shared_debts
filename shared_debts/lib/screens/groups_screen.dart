@@ -1,9 +1,13 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/group.dart';
+import '../services/auth_service.dart';
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key});
+  const GroupsScreen({super.key, this.authService});
+
+  final AuthService? authService;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
@@ -11,6 +15,15 @@ class GroupsScreen extends StatefulWidget {
 
 class _GroupsScreenState extends State<GroupsScreen> {
   final List<Group> _groups = [];
+  late final AuthService _authService;
+
+  @override
+  void initState() {
+    super.initState();
+    _authService = widget.authService ?? AuthService();
+  }
+
+  User? get _currentUser => _authService.currentUser;
 
   Future<void> _createGroup() async {
     final newGroup = await showDialog<Group>(
@@ -27,6 +40,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = _currentUser;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Groups'),
@@ -36,6 +51,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
             onPressed: _createGroup,
             icon: const Icon(Icons.add),
           ),
+          _UserAccountButton(authService: _authService),
           const SizedBox(width: 8),
         ],
       ),
@@ -47,17 +63,33 @@ class _GroupsScreenState extends State<GroupsScreen> {
               label: const Text('New group'),
             ),
       body: _groups.isEmpty
-          ? _EmptyGroups(onCreateGroup: _createGroup)
+          ? _EmptyGroups(
+              userName: user?.displayName,
+              onCreateGroup: _createGroup,
+            )
           : Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Your groups',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Your groups',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      if (user?.email != null)
+                        Text(
+                          user!.email!,
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.outline,
+                                  ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Expanded(
@@ -100,6 +132,90 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _UserAccountButton extends StatelessWidget {
+  const _UserAccountButton({required this.authService});
+
+  final AuthService authService;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = authService.currentUser;
+    final displayName = user?.displayName?.trim();
+    final email = user?.email ?? '';
+    final initial = (displayName != null && displayName.isNotEmpty)
+        ? displayName[0].toUpperCase()
+        : (email.isNotEmpty ? email[0].toUpperCase() : 'U');
+    final photoUrl = user?.photoURL;
+
+    return PopupMenuButton<String>(
+      tooltip: 'Account: ${displayName ?? email}',
+      offset: const Offset(0, 48),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      icon: CircleAvatar(
+        radius: 16,
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+        child: photoUrl == null
+            ? Text(
+                initial,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              )
+            : null,
+      ),
+      onSelected: (value) async {
+        if (value == 'sign_out') {
+          await authService.signOut();
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (displayName != null && displayName.isNotEmpty)
+                Text(
+                  displayName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              if (email.isNotEmpty)
+                Text(
+                  email,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black54,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'sign_out',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 20, color: Colors.red),
+              SizedBox(width: 10),
+              Text(
+                'Sign out',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -206,8 +322,12 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
 }
 
 class _EmptyGroups extends StatelessWidget {
-  const _EmptyGroups({required this.onCreateGroup});
+  const _EmptyGroups({
+    this.userName,
+    required this.onCreateGroup,
+  });
 
+  final String? userName;
   final VoidCallback onCreateGroup;
 
   @override
@@ -221,7 +341,9 @@ class _EmptyGroups extends StatelessWidget {
             const Icon(Icons.groups_outlined, size: 56),
             const SizedBox(height: 16),
             Text(
-              'No groups yet',
+              userName != null && userName!.isNotEmpty
+                  ? 'Welcome, $userName!'
+                  : 'No groups yet',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),

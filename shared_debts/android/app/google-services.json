@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "799451912062",
+    "project_id": "shared-debts-app",
+    "storage_bucket": "shared-debts-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:799451912062:android:d9deae86b8fa281885052f",
+        "android_client_info": {
+          "package_name": "com.example.shared_debts"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBH_lBPeGwKKQnZfRwJ9bc_80KljFM0Gxw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
