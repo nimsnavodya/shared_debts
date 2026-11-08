@@ -22,20 +22,22 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
+    debugPrint('SignInScreen: Button tapped, initiating Google Sign-in...');
     setState(() {
       _isLoading = true;
     });
 
     try {
       final credential = await _authService.signInWithGoogle();
+      debugPrint('SignInScreen: signInWithGoogle returned: $credential');
       if (credential == null && mounted) {
-        // User canceled sign-in.
         setState(() {
           _isLoading = false;
         });
         return;
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('SignInScreen: Error during sign-in: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -142,7 +144,6 @@ class _GoogleGLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Custom vector-based Google 'G' letter icon using Text / Container styling
     return Container(
       width: 24,
       height: 24,

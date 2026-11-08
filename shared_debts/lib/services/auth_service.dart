@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
@@ -20,8 +21,8 @@ class AuthService {
     if (_initialized) return;
     try {
       await _googleSignIn.initialize();
-    } catch (_) {
-      // Ignored if already initialized
+    } catch (e) {
+      debugPrint('AuthService: initialize note: $e');
     }
     _initialized = true;
   }
@@ -43,19 +44,24 @@ class AuthService {
   }
 
   Future<UserCredential?> signInWithGoogle() async {
+    debugPrint('AuthService: Ensuring GoogleSignIn is initialized...');
     await _ensureInitialized();
 
     try {
+      debugPrint('AuthService: Calling GoogleSignIn.instance.authenticate()...');
       final GoogleSignInAccount account = await _googleSignIn.authenticate();
+      debugPrint('AuthService: Account received: ${account.email}');
+
       final String? idToken = account.authentication.idToken;
+      debugPrint('AuthService: idToken present: ${idToken != null}');
 
       String? accessToken;
       try {
         final clientAuth = await account.authorizationClient
             .authorizationForScopes(['email', 'profile']);
         accessToken = clientAuth?.accessToken;
-      } catch (_) {
-        // Access token is optional for Firebase Auth when idToken is present
+      } catch (e) {
+        debugPrint('AuthService: Scopes authorization note: $e');
       }
 
       final OAuthCredential credential = GoogleAuthProvider.credential(
@@ -63,10 +69,11 @@ class AuthService {
         accessToken: accessToken,
       );
 
+      debugPrint('AuthService: Signing in with credential in FirebaseAuth...');
       return await _auth.signInWithCredential(credential);
     } on GoogleSignInException catch (e) {
+      debugPrint('AuthService: GoogleSignInException: [${e.code}] ${e.description}');
       if (e.code == GoogleSignInExceptionCode.canceled) {
-        // User canceled sign-in
         return null;
       }
       rethrow;
