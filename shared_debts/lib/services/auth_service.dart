@@ -6,11 +6,17 @@ class AuthService {
   AuthService({
     FirebaseAuth? auth,
     GoogleSignIn? googleSignIn,
+    this.serverClientId = defaultServerClientId,
   })  : _customAuth = auth,
         _customGoogleSignIn = googleSignIn;
 
+  /// Web OAuth client ID from Firebase Console / google-services.json (client_type: 3)
+  static const String defaultServerClientId =
+      '799451912062-igbq7bg0atdcr9aoo67ovq7f9fjl5vo0.apps.googleusercontent.com';
+
   final FirebaseAuth? _customAuth;
   final GoogleSignIn? _customGoogleSignIn;
+  final String? serverClientId;
   bool _initialized = false;
 
   FirebaseAuth get _auth => _customAuth ?? FirebaseAuth.instance;
@@ -20,7 +26,7 @@ class AuthService {
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
     try {
-      await _googleSignIn.initialize();
+      await _googleSignIn.initialize(serverClientId: serverClientId);
     } catch (e) {
       debugPrint('AuthService: initialize note: $e');
     }

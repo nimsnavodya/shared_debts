@@ -12,7 +12,20 @@
           "package_name": "com.example.shared_debts"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "799451912062-45p4sovddcb3l0o5esf0onr3on38qalf.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.shared_debts",
+            "certificate_hash": "98a6b157a47463336c46cbdc28834d22529f0e45"
+          }
+        },
+        {
+          "client_id": "799451912062-igbq7bg0atdcr9aoo67ovq7f9fjl5vo0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBH_lBPeGwKKQnZfRwJ9bc_80KljFM0Gxw"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "799451912062-igbq7bg0atdcr9aoo67ovq7f9fjl5vo0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
