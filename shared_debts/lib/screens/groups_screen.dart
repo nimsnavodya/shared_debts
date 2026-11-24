@@ -3,71 +3,143 @@ import 'package:flutter/material.dart';
 
 import '../models/group.dart';
 import '../services/auth_service.dart';
+import '../services/group_service.dart';
 
 class GroupsScreen extends StatefulWidget {
-  const GroupsScreen({super.key, this.authService});
+  const GroupsScreen({
+    super.key,
+    this.authService,
+    this.groupService,
+  });
 
   final AuthService? authService;
+  final GroupService? groupService;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
 }
 
 class _GroupsScreenState extends State<GroupsScreen> {
-  final List<Group> _groups = [];
   late final AuthService _authService;
+  late final GroupService _groupService;
 
   @override
   void initState() {
     super.initState();
     _authService = widget.authService ?? AuthService();
+    _groupService = widget.groupService ?? GroupService();
   }
 
   User? get _currentUser => _authService.currentUser;
 
   Future<void> _createGroup() async {
-    final newGroup = await showDialog<Group>(
+    final formResult = await showDialog<_CreateGroupFormResult>(
       context: context,
       builder: (dialogContext) => const _CreateGroupDialog(),
     );
 
-    if (!mounted || newGroup == null) return;
+    if (!mounted || formResult == null) return;
 
-    setState(() {
-      _groups.add(newGroup);
-    });
+    try {
+      final effectiveUserId = _currentUser?.uid ?? 'guest_user';
+      await _groupService.createGroup(
+        name: formResult.name,
+        kind: formResult.kind,
+        creatorId: effectiveUserId,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save group: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final user = _currentUser;
+    final effectiveUserId = user?.uid ?? 'guest_user';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Groups'),
-        actions: [
-          IconButton(
-            tooltip: 'Create a group',
-            onPressed: _createGroup,
-            icon: const Icon(Icons.add),
+    return StreamBuilder<List<Group>>(
+      initialData: _groupService.getInitialGroups(effectiveUserId),
+      stream: _groupService.streamGroups(effectiveUserId),
+      builder: (context, snapshot) {
+        final groups = snapshot.data ?? const [];
+        final hasData = snapshot.hasData;
+        final isWaiting =
+            snapshot.connectionState == ConnectionState.waiting && !hasData;
+        final hasError = snapshot.hasError;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Groups'),
+            actions: [
+              IconButton(
+                tooltip: 'Create a group',
+                onPressed: _createGroup,
+                icon: const Icon(Icons.add),
+              ),
+              _UserAccountButton(authService: _authService),
+              const SizedBox(width: 8),
+            ],
           ),
-          _UserAccountButton(authService: _authService),
-          const SizedBox(width: 8),
-        ],
-      ),
-      floatingActionButton: _groups.isEmpty
-          ? null
-          : FloatingActionButton.extended(
-              onPressed: _createGroup,
-              icon: const Icon(Icons.add),
-              label: const Text('New group'),
-            ),
-      body: _groups.isEmpty
-          ? _EmptyGroups(
-              userName: user?.displayName,
-              onCreateGroup: _createGroup,
-            )
-          : Padding(
+          floatingActionButton: (isWaiting || hasError || groups.isEmpty)
+              ? null
+              : FloatingActionButton.extended(
+                  onPressed: _createGroup,
+                  icon: const Icon(Icons.add),
+                  label: const Text('New group'),
+                ),
+          body: () {
+            if (isWaiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 56,
+                        color: Colors.red,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Failed to load groups',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.tonal(
+                        onPressed: () => setState(() {}),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            if (groups.isEmpty) {
+              return _EmptyGroups(
+                userName: user?.displayName,
+                onCreateGroup: _createGroup,
+              );
+            }
+
+            return Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -86,7 +158,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           user!.email!,
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.outline,
+                                    color:
+                                        Theme.of(context).colorScheme.outline,
                                   ),
                         ),
                     ],
@@ -94,11 +167,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   const SizedBox(height: 12),
                   Expanded(
                     child: ListView.separated(
-                      itemCount: _groups.length,
+                      itemCount: groups.length,
                       separatorBuilder: (context, index) =>
                           const SizedBox(height: 8),
                       itemBuilder: (context, index) {
-                        final group = _groups[index];
+                        final group = groups[index];
                         final isTrip = group.kind == GroupKind.trip;
 
                         return Card(
@@ -131,7 +204,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   ),
                 ],
               ),
-            ),
+            );
+          }(),
+        );
+      },
     );
   }
 }
@@ -220,6 +296,16 @@ class _UserAccountButton extends StatelessWidget {
   }
 }
 
+class _CreateGroupFormResult {
+  const _CreateGroupFormResult({
+    required this.name,
+    required this.kind,
+  });
+
+  final String name;
+  final GroupKind kind;
+}
+
 class _CreateGroupDialog extends StatefulWidget {
   const _CreateGroupDialog();
 
@@ -243,11 +329,9 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
 
     Navigator.pop(
       context,
-      Group(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+      _CreateGroupFormResult(
         name: _nameController.text.trim(),
         kind: _selectedKind,
-        memberCount: 1,
       ),
     );
   }

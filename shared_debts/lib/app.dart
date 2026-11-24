@@ -4,15 +4,18 @@ import 'package:flutter/material.dart';
 import 'screens/groups_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/auth_service.dart';
+import 'services/group_service.dart';
 
 class SharedDebtsApp extends StatelessWidget {
   const SharedDebtsApp({
     super.key,
     this.authService,
+    this.groupService,
     this.home,
   });
 
   final AuthService? authService;
+  final GroupService? groupService;
   final Widget? home;
 
   @override
@@ -24,15 +27,23 @@ class SharedDebtsApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF167D68)),
         useMaterial3: true,
       ),
-      home: home ?? _AuthGate(authService: authService ?? AuthService()),
+      home: home ??
+          _AuthGate(
+            authService: authService ?? AuthService(),
+            groupService: groupService,
+          ),
     );
   }
 }
 
 class _AuthGate extends StatelessWidget {
-  const _AuthGate({required this.authService});
+  const _AuthGate({
+    required this.authService,
+    this.groupService,
+  });
 
   final AuthService authService;
+  final GroupService? groupService;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +63,10 @@ class _AuthGate extends StatelessWidget {
           return SignInScreen(authService: authService);
         }
 
-        return GroupsScreen(authService: authService);
+        return GroupsScreen(
+          authService: authService,
+          groupService: groupService,
+        );
       },
     );
   }
