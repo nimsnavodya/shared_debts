@@ -12,11 +12,12 @@ service cloud.firestore {
       allow read: if isSignedIn() && request.auth.uid in resource.data.memberIds;
 
       // 2. Create – the caller must be authenticated, be the creator, be the only
-      // initial member, and provide a non‑empty name.
+      //    initial member, and provide a non‑empty name. The member list must contain
+      //    exactly the creator's UID.
       allow create: if isSignedIn()
                      && request.resource.data.creatorId == request.auth.uid
                      && request.resource.data.memberIds is list
-                     && request.resource.data.memberIds.hasOnly([request.auth.uid])
+                     && request.resource.data.memberIds == [request.auth.uid]
                      && request.resource.data.name is string
                      && request.resource.data.name.size() > 0;
 
