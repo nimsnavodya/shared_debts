@@ -1,21 +1,23 @@
 import 'dart:async';
-
 import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/group.dart';
 
 class GroupService {
-  GroupService({FirebaseFirestore? firestore})
-      : _customFirestore = firestore;
+  GroupService({FirebaseFirestore? firestore}) : _customFirestore = firestore;
 
   final FirebaseFirestore? _customFirestore;
 
   // In-memory fallback for testing or when Firebase is not initialized
   final List<Group> _inMemoryGroups = [];
   StreamController<List<Group>>? _inMemoryController;
+
+  // In-memory storage for invitations used in tests / fallback mode
+  final Map<String, Map<String, String>> _inMemoryInvitations = {};
 
   FirebaseFirestore? get _firestore {
     if (_customFirestore != null) return _customFirestore;
@@ -66,8 +68,10 @@ class GroupService {
 
             // Sort in memory by createdAt descending
             groups.sort((a, b) {
-              final aTime = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-              final bTime = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final aTime =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bTime =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
               return bTime.compareTo(aTime);
             });
             return groups;
@@ -82,70 +86,15 @@ class GroupService {
     });
   }
 
-  Future<String> createInvitation({required String groupId, required String creatorId}) async {
-    final firestore = _firestore;
-    final token = _generateToken();
-    if (firestore != null) {
-      await firestore.collection('invitations').doc(token).set({
-        'groupId': groupId,
-        'creatorId': creatorId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      // In‑memory fallback – store in a simple map
-      _inMemoryInvitations[token] = {'groupId': groupId, 'creatorId': creatorId};
-    }
-    return token;
-  }
+  // ---------------------------------------------------------------
+  //  Group creation
+  // ---------------------------------------------------------------
 
-  Future<void> joinGroupWithToken(String token, String userId) async {
-    final firestore = _firestore;
-    if (firestore != null) {
-      final invDoc = await firestore.collection('invitations').doc(token).get();
-      if (!invDoc.exists) throw Exception('Invalid invitation');
-      final groupId = invDoc.data()?['groupId'] as String?;
-      if (groupId == null) throw Exception('Malformed invitation');
-      final groupRef = firestore.collection('groups').doc(groupId);
-      await groupRef.update({
-        'memberIds': FieldValue.arrayUnion([userId]),
-      });
-      // Optionally delete invitation after use
-      await firestore.collection('invitations').doc(token).delete();
-    } else {
-      final inv = _inMemoryInvitations[token];
-      if (inv == null) throw Exception('Invalid invitation');
-      final groupId = inv['groupId'] as String;
-      // Find group in memory and add member
-      final idx = _inMemoryGroups.indexWhere((g) => g.id == groupId);
-      if (idx == -1) throw Exception('Group not found');
-      final group = _inMemoryGroups[idx];
-      if (!group.memberIds.contains(userId)) {
-        final updated = Group(
-          id: group.id,
-          name: group.name,
-          kind: group.kind,
-          memberCount: group.memberCount + 1,
-          creatorId: group.creatorId,
-          memberIds: [...group.memberIds, userId],
-          createdAt: group.createdAt,
-        );
-        _inMemoryGroups[idx] = updated;
-        _getInMemoryController().add(List.unmodifiable(_inMemoryGroups));
-      }
-      _inMemoryInvitations.remove(token);
-    }
-  }
-
-  // Simple token generator – 12 alphanumeric characters
-  String _generateToken() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    final rnd = Random.secure();
-    return List.generate(12, (_) => chars[rnd.nextInt(chars.length)]).join();
-  }
-
-  // In‑memory storage for invitations used in tests / fallback mode
-  final Map<String, Map<String, String>> _inMemoryInvitations = {};
-
+  Future<Group> createGroup({
+    required String name,
+    required GroupKind kind,
+    required String creatorId,
+  }) async {
     final firestore = _firestore;
     final now = DateTime.now();
 
@@ -160,7 +109,9 @@ class GroupService {
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        debugPrint('GroupService: Successfully saved group ${docRef.id} to Firestore.');
+        debugPrint(
+          'GroupService: Successfully saved group ${docRef.id} to Firestore.',
+        );
         return Group(
           id: docRef.id,
           name: name,
@@ -187,12 +138,81 @@ class GroupService {
       createdAt: now,
     );
     _inMemoryGroups.insert(0, group);
-    void _getInMemoryController().add(List.unmodifiable(inMemoryGroups));
+    _getInMemoryController().add(List.unmodifiable(_inMemoryGroups));
     return group;
+  }
+
+  // ---------------------------------------------------------------
+  //  Invitations
+  // ---------------------------------------------------------------
+
+  Future<String> createInvitation({
+    required String groupId,
+    required String creatorId,
+  }) async {
+    final firestore = _firestore;
+    final token = _generateToken();
+    if (firestore != null) {
+      await firestore.collection('invitations').doc(token).set({
+        'groupId': groupId,
+        'creatorId': creatorId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      _inMemoryInvitations[token] = {
+        'groupId': groupId,
+        'creatorId': creatorId,
+      };
+    }
+    return token;
+  }
+
+  Future<void> joinGroupWithToken(String token, String userId) async {
+    final firestore = _firestore;
+    if (firestore != null) {
+      final invDoc = await firestore.collection('invitations').doc(token).get();
+      if (!invDoc.exists) throw Exception('Invalid invitation');
+      final groupId = invDoc.data()?['groupId'] as String?;
+      if (groupId == null) throw Exception('Malformed invitation');
+      final groupRef = firestore.collection('groups').doc(groupId);
+      await groupRef.update({
+        'memberIds': FieldValue.arrayUnion([userId]),
+      });
+      // Delete invitation after use
+      await firestore.collection('invitations').doc(token).delete();
+    } else {
+      final inv = _inMemoryInvitations[token];
+      if (inv == null) throw Exception('Invalid invitation');
+      final groupId = inv['groupId'] as String;
+      final idx = _inMemoryGroups.indexWhere((g) => g.id == groupId);
+      if (idx == -1) throw Exception('Group not found');
+      final group = _inMemoryGroups[idx];
+      if (!group.memberIds.contains(userId)) {
+        final updated = Group(
+          id: group.id,
+          name: group.name,
+          kind: group.kind,
+          memberCount: group.memberCount + 1,
+          creatorId: group.creatorId,
+          memberIds: [...group.memberIds, userId],
+          createdAt: group.createdAt,
+        );
+        _inMemoryGroups[idx] = updated;
+        _getInMemoryController().add(List.unmodifiable(_inMemoryGroups));
+      }
+      _inMemoryInvitations.remove(token);
+    }
+  }
+
+  // Simple token generator - 12 alphanumeric characters
+  String _generateToken() {
+    const chars =
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    final rnd = Random.secure();
+    return List.generate(12, (_) => chars[rnd.nextInt(chars.length)]).join();
   }
 
   void dispose() {
     _inMemoryController?.close();
   }
 }
-

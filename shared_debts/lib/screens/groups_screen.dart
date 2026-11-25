@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/group.dart';
@@ -25,9 +26,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
   // Holds temporary token input when joining
   String tokenInput = '';
 
-  late final AuthService _authService;
-  late final GroupService _groupService;
-
   @override
   void initState() {
     super.initState();
@@ -37,92 +35,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
   User? get _currentUser => _authService.currentUser;
 
-// Add method to create invitation and show token
-  Future<void> _createInvitation(Group group) async {
-    final user = _currentUser; // signed‑in user
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be signed in to invite'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    try {
-      final token = await _groupService.createInvitation(groupId: group.id, creatorId: user.uid);
-      // Show token dialog with copy button
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Invitation Token'),
-          content: SelectableText(token),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: token));
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Token copied to clipboard')),
-                );
-              },
-              child: const Text('Copy'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create invitation: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  // Add method to join a group using a token
-  Future<void> _joinGroupWithToken() async {
-    final user = _currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You must be signed in to join'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-    final token = await showDialog<String>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Enter Invitation Token'),
-        content: TextField(
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Token'),
-          onChanged: (v) => tokenInput = v.trim(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(c).pop(null),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(c).pop(tokenInput),
-            child: const Text('Join'),
-          ),
-        ],
-      ),
-    );
-    if (token == null || token.isEmpty) return;
-    try {
-      await _groupService.joinGroupWithToken(token, user.uid);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Successfully joined the group')),
-      );
-      setState(() {}); // refresh UI
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to join: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
+  // -----------------------------------------------------------------
+  //  Create a group
+  // -----------------------------------------------------------------
+  Future<void> _createGroup() async {
     final formResult = await showDialog<_CreateGroupFormResult>(
       context: context,
       builder: (dialogContext) => const _CreateGroupDialog(),
@@ -148,6 +64,117 @@ class _GroupsScreenState extends State<GroupsScreen> {
     }
   }
 
+  // -----------------------------------------------------------------
+  //  Create invitation and show token
+  // -----------------------------------------------------------------
+  Future<void> _createInvitation(Group group) async {
+    final user = _currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must be signed in to invite'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    try {
+      final token = await _groupService.createInvitation(
+        groupId: group.id,
+        creatorId: user.uid,
+      );
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Invitation Token'),
+          content: SelectableText(token),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: token));
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Token copied to clipboard')),
+                );
+              },
+              child: const Text('Copy'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to create invitation: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // -----------------------------------------------------------------
+  //  Join a group using a token
+  // -----------------------------------------------------------------
+  Future<void> _joinGroupWithToken() async {
+    final user = _currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You must be signed in to join'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final token = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Enter Invitation Token'),
+        content: TextField(
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Paste token here'),
+          onChanged: (v) => tokenInput = v.trim(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(null),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(c).pop(tokenInput),
+            child: const Text('Join'),
+          ),
+        ],
+      ),
+    );
+    if (token == null || token.isEmpty) return;
+    try {
+      await _groupService.joinGroupWithToken(token, user.uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Successfully joined the group')),
+      );
+      setState(() {}); // refresh UI
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to join: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // -----------------------------------------------------------------
+  //  Build
+  // -----------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final user = _currentUser;
@@ -167,6 +194,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
           appBar: AppBar(
             title: const Text('Groups'),
             actions: [
+              IconButton(
+                tooltip: 'Join a group',
+                onPressed: _joinGroupWithToken,
+                icon: const Icon(Icons.login),
+              ),
               IconButton(
                 tooltip: 'Create a group',
                 onPressed: _createGroup,
@@ -286,6 +318,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
                             subtitle: Text(
                               '${isTrip ? 'Trip' : 'Shared group'}'
                               ' · ${group.memberCount} member',
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.link),
+                              tooltip: 'Create invitation',
+                              onPressed: () => _createInvitation(group),
                             ),
                           ),
                         );
