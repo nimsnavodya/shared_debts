@@ -24,8 +24,26 @@ service cloud.firestore {
                      && request.resource.data.name is string
                      && request.resource.data.name.size() > 0;
 
-      // 3. Update – not allowed yet (features not implemented)
-      allow update: if false;
+      // 3. Update – allow a signed-in user to join the group using a valid invitation token:
+      //    - User must be signed in.
+      //    - Only memberIds and inviteToken can be updated.
+      //    - Existing members, creatorId, and name are preserved.
+      //    - The caller can only add their own UID to memberIds.
+      //    - The token must exist in the invitations collection and point to this group.
+      allow update: if isSignedIn()
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'inviteToken'])
+                     && request.resource.data.creatorId == resource.data.creatorId
+                     && request.resource.data.name == resource.data.name
+                     && request.resource.data.memberIds is list
+                     && resource.data.memberIds is list
+                     && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+                     && request.auth.uid in request.resource.data.memberIds
+                     && !(request.auth.uid in resource.data.memberIds)
+                     && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+                     && 'inviteToken' in request.resource.data
+                     && request.resource.data.inviteToken is string
+                     && exists(/databases/$(database)/documents/invitations/$(request.resource.data.inviteToken))
+                     && get(/databases/$(database)/documents/invitations/$(request.resource.data.inviteToken)).data.groupId == groupId;
 
       // 4. Delete – not allowed yet (features not implemented)
       allow delete: if false;
@@ -43,12 +61,11 @@ service cloud.firestore {
                      && exists(/databases/$(database)/documents/groups/$(request.resource.data.groupId))
                      && request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.memberIds;
 
-      // Any signed‑in user who knows a valid token can read it (the token is
-      // considered secret), but we do not expose it to unauthenticated users.
-      allow read: if isSignedIn();
+      // Allow get (single document lookup by token), but disallow list (browsing invitations)
+      allow get: if isSignedIn();
+      allow list: if false;
 
-      // After a user joins, the token is deleted. Allow the creator or any
-      // signed‑in user to delete it.
+      // After a user joins, the token is deleted.
       allow delete: if isSignedIn();
 
       // No updates – an invitation is immutable.

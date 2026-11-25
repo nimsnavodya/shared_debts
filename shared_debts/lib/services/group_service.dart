@@ -150,6 +150,9 @@ class GroupService {
     required String groupId,
     required String creatorId,
   }) async {
+    if (groupId.trim().isEmpty || creatorId.trim().isEmpty) {
+      throw Exception('Invalid group or creator ID');
+    }
     final firestore = _firestore;
     final token = _generateToken();
     if (firestore != null) {
@@ -159,6 +162,13 @@ class GroupService {
         'createdAt': FieldValue.serverTimestamp(),
       });
     } else {
+      final idx = _inMemoryGroups.indexWhere((g) => g.id == groupId);
+      if (idx == -1) {
+        throw Exception('Group not found');
+      }
+      if (!_inMemoryGroups[idx].memberIds.contains(creatorId)) {
+        throw Exception('User is not a member of this group');
+      }
       _inMemoryInvitations[token] = {
         'groupId': groupId,
         'creatorId': creatorId,
@@ -168,6 +178,9 @@ class GroupService {
   }
 
   Future<void> joinGroupWithToken(String token, String userId) async {
+    if (token.trim().isEmpty) throw Exception('Invalid invitation');
+    if (userId.trim().isEmpty) throw Exception('User must be signed in');
+
     final firestore = _firestore;
     if (firestore != null) {
       final invDoc = await firestore.collection('invitations').doc(token).get();
@@ -177,9 +190,14 @@ class GroupService {
       final groupRef = firestore.collection('groups').doc(groupId);
       await groupRef.update({
         'memberIds': FieldValue.arrayUnion([userId]),
+        'inviteToken': token,
       });
       // Delete invitation after use
-      await firestore.collection('invitations').doc(token).delete();
+      try {
+        await firestore.collection('invitations').doc(token).delete();
+      } catch (e) {
+        debugPrint('GroupService: Note, could not delete used invitation: $e');
+      }
     } else {
       final inv = _inMemoryInvitations[token];
       if (inv == null) throw Exception('Invalid invitation');
@@ -187,19 +205,20 @@ class GroupService {
       final idx = _inMemoryGroups.indexWhere((g) => g.id == groupId);
       if (idx == -1) throw Exception('Group not found');
       final group = _inMemoryGroups[idx];
-      if (!group.memberIds.contains(userId)) {
-        final updated = Group(
-          id: group.id,
-          name: group.name,
-          kind: group.kind,
-          memberCount: group.memberCount + 1,
-          creatorId: group.creatorId,
-          memberIds: [...group.memberIds, userId],
-          createdAt: group.createdAt,
-        );
-        _inMemoryGroups[idx] = updated;
-        _getInMemoryController().add(List.unmodifiable(_inMemoryGroups));
+      if (group.memberIds.contains(userId)) {
+        throw Exception('User is already a member of this group');
       }
+      final updated = Group(
+        id: group.id,
+        name: group.name,
+        kind: group.kind,
+        memberCount: group.memberCount + 1,
+        creatorId: group.creatorId,
+        memberIds: [...group.memberIds, userId],
+        createdAt: group.createdAt,
+      );
+      _inMemoryGroups[idx] = updated;
+      _getInMemoryController().add(List.unmodifiable(_inMemoryGroups));
       _inMemoryInvitations.remove(token);
     }
   }

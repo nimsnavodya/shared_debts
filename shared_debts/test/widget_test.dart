@@ -255,6 +255,82 @@ void main() {
       expect(groups.first.id, group.id);
     },
   );
+
+  test('Valid invitation creation and joining flow', () async {
+    final service = GroupService();
+    // User 1 creates group
+    final group = await service.createGroup(
+      name: 'Road Trip',
+      kind: GroupKind.trip,
+      creatorId: 'user_1',
+    );
+
+    // User 1 creates invitation token
+    final token = await service.createInvitation(
+      groupId: group.id,
+      creatorId: 'user_1',
+    );
+    expect(token, isNotEmpty);
+    expect(token.length, 12);
+
+    // User 2 joins using the token
+    await service.joinGroupWithToken(token, 'user_2');
+
+    // Verify User 2 now sees the group
+    final user2Groups = await service.streamGroups('user_2').first;
+    expect(user2Groups.length, 1);
+    expect(user2Groups.first.name, 'Road Trip');
+    expect(user2Groups.first.memberCount, 2);
+    expect(user2Groups.first.memberIds, containsAll(['user_1', 'user_2']));
+
+    // Verify token was consumed and cannot be reused
+    expect(
+      () => service.joinGroupWithToken(token, 'user_3'),
+      throwsA(isA<Exception>()),
+    );
+  });
+
+  test('Joining with an invalid token fails', () async {
+    final service = GroupService();
+    expect(
+      () => service.joinGroupWithToken('NON_EXISTENT_TOKEN_123', 'user_2'),
+      throwsA(predicate((e) => e.toString().contains('Invalid invitation'))),
+    );
+  });
+
+  test('Unauthorized invitation attempts are rejected', () async {
+    final service = GroupService();
+    final group = await service.createGroup(
+      name: 'Secret Project',
+      kind: GroupKind.shared,
+      creatorId: 'user_1',
+    );
+
+    // Non-member (user_intruder) tries to create an invitation for user_1's group
+    expect(
+      () => service.createInvitation(
+        groupId: group.id,
+        creatorId: 'user_intruder',
+      ),
+      throwsA(predicate((e) => e.toString().contains('not a member'))),
+    );
+
+    // Joining without signed-in user ID fails
+    final validToken = await service.createInvitation(
+      groupId: group.id,
+      creatorId: 'user_1',
+    );
+    expect(
+      () => service.joinGroupWithToken(validToken, ''),
+      throwsA(predicate((e) => e.toString().contains('User must be signed in'))),
+    );
+
+    // Member already in group cannot join again
+    expect(
+      () => service.joinGroupWithToken(validToken, 'user_1'),
+      throwsA(predicate((e) => e.toString().contains('already a member'))),
+    );
+  });
 }
 
 class _MockGroupService extends GroupService {
