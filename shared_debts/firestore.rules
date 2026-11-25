@@ -7,6 +7,9 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ---------------------------------------------------------------------
+    // Groups collection
+    // ---------------------------------------------------------------------
     match /groups/{groupId} {
       // 1. Read – only members of the group may read it (including list queries)
       allow read: if isSignedIn() && request.auth.uid in resource.data.memberIds;
@@ -26,6 +29,30 @@ service cloud.firestore {
 
       // 4. Delete – not allowed yet (features not implemented)
       allow delete: if false;
+    }
+
+    // ---------------------------------------------------------------------
+    // Invitations collection – one‑time tokens to join a group
+    // ---------------------------------------------------------------------
+    match /invitations/{invId} {
+      // Only signed‑in users can create an invitation, and only for groups they
+      // are already a member of.
+      allow create: if isSignedIn()
+                     && request.resource.data.creatorId == request.auth.uid
+                     && request.resource.data.groupId is string
+                     && exists(/databases/$(database)/documents/groups/$(request.resource.data.groupId))
+                     && request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.memberIds;
+
+      // Any signed‑in user who knows a valid token can read it (the token is
+      // considered secret), but we do not expose it to unauthenticated users.
+      allow read: if isSignedIn();
+
+      // After a user joins, the token is deleted. Allow the creator or any
+      // signed‑in user to delete it.
+      allow delete: if isSignedIn();
+
+      // No updates – an invitation is immutable.
+      allow update: if false;
     }
   }
 }

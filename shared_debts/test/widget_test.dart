@@ -11,7 +11,7 @@ import 'package:shared_debts/services/auth_service.dart';
 import 'package:shared_debts/services/group_service.dart';
 
 class _TestAuthService extends AuthService {
-  _TestAuthService({this.testUser, this.onSignIn, this.onSignOut});
+  _TestAuthService({this.onSignIn, this.onSignOut}) : testUser = null;
 
   final User? testUser;
   final Future<UserCredential?> Function()? onSignIn;
@@ -156,9 +156,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: GroupsScreen(groupService: mockService),
-      ),
+      MaterialApp(home: GroupsScreen(groupService: mockService)),
     );
 
     // Initial frame should show loading indicator
@@ -187,9 +185,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: GroupsScreen(groupService: mockService),
-      ),
+      MaterialApp(home: GroupsScreen(groupService: mockService)),
     );
     await tester.pumpAndSettle();
 
@@ -236,26 +232,29 @@ void main() {
     expect(reconstructed.createdAt, now);
   });
 
-  test('GroupService stores creator as first member and saves fields', () async {
-    final service = GroupService();
-    final group = await service.createGroup(
-      name: 'Office Lunch',
-      kind: GroupKind.shared,
-      creatorId: 'test_creator_123',
-    );
+  test(
+    'GroupService stores creator as first member and saves fields',
+    () async {
+      final service = GroupService();
+      final group = await service.createGroup(
+        name: 'Office Lunch',
+        kind: GroupKind.shared,
+        creatorId: 'test_creator_123',
+      );
 
-    expect(group.name, 'Office Lunch');
-    expect(group.kind, GroupKind.shared);
-    expect(group.creatorId, 'test_creator_123');
-    expect(group.memberIds, ['test_creator_123']);
-    expect(group.memberCount, 1);
-    expect(group.createdAt, isNotNull);
+      expect(group.name, 'Office Lunch');
+      expect(group.kind, GroupKind.shared);
+      expect(group.creatorId, 'test_creator_123');
+      expect(group.memberIds, ['test_creator_123']);
+      expect(group.memberCount, 1);
+      expect(group.createdAt, isNotNull);
 
-    final streamFuture = service.streamGroups('test_creator_123').first;
-    final groups = await streamFuture;
-    expect(groups.length, 1);
-    expect(groups.first.id, group.id);
-  });
+      final streamFuture = service.streamGroups('test_creator_123').first;
+      final groups = await streamFuture;
+      expect(groups.length, 1);
+      expect(groups.first.id, group.id);
+    },
+  );
 }
 
 class _MockGroupService extends GroupService {
