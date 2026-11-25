@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/debt.dart';
 import '../models/group.dart';
 
 class GroupService {
@@ -18,6 +19,10 @@ class GroupService {
 
   // In-memory storage for invitations used in tests / fallback mode
   final Map<String, Map<String, String>> _inMemoryInvitations = {};
+
+  // In-memory storage for debts used in tests / fallback mode
+  final Map<String, List<Debt>> _inMemoryDebts = {};
+  final Map<String, StreamController<List<Debt>>> _inMemoryDebtControllers = {};
 
   FirebaseFirestore? get _firestore {
     if (_customFirestore != null) return _customFirestore;
@@ -36,6 +41,18 @@ class GroupService {
       onListen: () {
         _inMemoryController?.add(List.unmodifiable(_inMemoryGroups));
       },
+    );
+  }
+
+  StreamController<List<Debt>> _getInMemoryDebtController(String groupId) {
+    return _inMemoryDebtControllers.putIfAbsent(
+      groupId,
+      () => StreamController<List<Debt>>.broadcast(
+        onListen: () {
+          final list = _inMemoryDebts[groupId] ?? const [];
+          _inMemoryDebtControllers[groupId]?.add(List.unmodifiable(list));
+        },
+      ),
     );
   }
 
@@ -223,6 +240,123 @@ class GroupService {
     }
   }
 
+  // ---------------------------------------------------------------
+  //  Debts Management
+  // ---------------------------------------------------------------
+
+  List<Debt>? getInitialDebts(String groupId) {
+    if (_firestore == null) {
+      return List.unmodifiable(_inMemoryDebts[groupId] ?? const []);
+    }
+    return null;
+  }
+
+  Stream<List<Debt>> streamDebts(String groupId) {
+    final firestore = _firestore;
+    if (firestore != null) {
+      if (groupId.isEmpty) return Stream.value(const []);
+      return firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('debts')
+          .snapshots()
+          .map((snapshot) {
+            final debts = snapshot.docs.map((doc) {
+              return Debt.fromMap(doc.id, doc.data());
+            }).toList();
+
+            // Sort in memory by createdAt descending
+            debts.sort((a, b) {
+              final aTime =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bTime =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bTime.compareTo(aTime);
+            });
+            return debts;
+          });
+    }
+
+    // In-memory fallback
+    final controller = _getInMemoryDebtController(groupId);
+    return controller.stream;
+  }
+
+  Future<Debt> addDebt({
+    required String groupId,
+    required String debtorId,
+    required String creditorId,
+    required double amount,
+    String? note,
+    required String creatorId,
+  }) async {
+    if (amount <= 0) {
+      throw Exception('Amount must be positive');
+    }
+    if (debtorId == creditorId) {
+      throw Exception('Debtor and creditor must be different members');
+    }
+    if (groupId.trim().isEmpty || debtorId.trim().isEmpty || creditorId.trim().isEmpty) {
+      throw Exception('Group ID, debtor, and creditor cannot be empty');
+    }
+
+    final firestore = _firestore;
+    final now = DateTime.now();
+    final cleanNote = (note != null && note.trim().isNotEmpty) ? note.trim() : null;
+
+    if (firestore != null) {
+      final docRef = firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('debts')
+          .doc();
+
+      final data = {
+        'groupId': groupId,
+        'debtorId': debtorId,
+        'creditorId': creditorId,
+        'amount': amount,
+        'note': ?cleanNote,
+        'creatorId': creatorId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'open',
+      };
+
+      await docRef.set(data);
+
+      return Debt(
+        id: docRef.id,
+        groupId: groupId,
+        debtorId: debtorId,
+        creditorId: creditorId,
+        amount: amount,
+        note: cleanNote,
+        creatorId: creatorId,
+        createdAt: now,
+        status: 'open',
+      );
+    }
+
+    // In-memory fallback
+    final debt = Debt(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      groupId: groupId,
+      debtorId: debtorId,
+      creditorId: creditorId,
+      amount: amount,
+      note: cleanNote,
+      creatorId: creatorId,
+      createdAt: now,
+      status: 'open',
+    );
+
+    final list = _inMemoryDebts.putIfAbsent(groupId, () => []);
+    list.insert(0, debt);
+    _getInMemoryDebtController(groupId).add(List.unmodifiable(list));
+
+    return debt;
+  }
+
   // Simple token generator - 12 alphanumeric characters
   String _generateToken() {
     const chars =
@@ -233,5 +367,8 @@ class GroupService {
 
   void dispose() {
     _inMemoryController?.close();
+    for (final c in _inMemoryDebtControllers.values) {
+      c.close();
+    }
   }
 }

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_debts/app.dart';
+import 'package:shared_debts/models/debt.dart';
 import 'package:shared_debts/models/group.dart';
 import 'package:shared_debts/screens/groups_screen.dart';
 import 'package:shared_debts/screens/sign_in_screen.dart';
@@ -330,6 +331,192 @@ void main() {
       () => service.joinGroupWithToken(validToken, 'user_1'),
       throwsA(predicate((e) => e.toString().contains('already a member'))),
     );
+  });
+
+  test('Debt model converts to and from map with correct fields', () {
+    final now = DateTime.now();
+    final debt = Debt(
+      id: 'd1',
+      groupId: 'g1',
+      debtorId: 'u1',
+      creditorId: 'u2',
+      amount: 45.50,
+      note: 'Dinner',
+      creatorId: 'u1',
+      createdAt: now,
+      status: 'open',
+    );
+
+    final map = debt.toMap();
+    expect(map['groupId'], 'g1');
+    expect(map['debtorId'], 'u1');
+    expect(map['creditorId'], 'u2');
+    expect(map['amount'], 45.50);
+    expect(map['note'], 'Dinner');
+    expect(map['creatorId'], 'u1');
+    expect(map['status'], 'open');
+
+    final reconstructed = Debt.fromMap('d1', {
+      'groupId': 'g1',
+      'debtorId': 'u1',
+      'creditorId': 'u2',
+      'amount': 45.50,
+      'note': 'Dinner',
+      'creatorId': 'u1',
+      'createdAt': now,
+      'status': 'open',
+    });
+
+    expect(reconstructed.id, 'd1');
+    expect(reconstructed.groupId, 'g1');
+    expect(reconstructed.debtorId, 'u1');
+    expect(reconstructed.creditorId, 'u2');
+    expect(reconstructed.amount, 45.50);
+    expect(reconstructed.note, 'Dinner');
+    expect(reconstructed.status, 'open');
+  });
+
+  test('Simple debt balance calculation: A owes B 50', () {
+    final members = ['A', 'B'];
+    final debts = [
+      const Debt(
+        id: 'd1',
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'B',
+        amount: 50.0,
+        creatorId: 'A',
+      ),
+    ];
+
+    final balances = Debt.calculateBalances(members, debts);
+
+    expect(balances['A'], -50.0);
+    expect(balances['B'], 50.0);
+  });
+
+  test('Cycle debt balance calculation: A owes B 50, B owes C 50, C owes A 50 (net balance zero for everyone)', () {
+    final members = ['A', 'B', 'C'];
+    final debts = [
+      const Debt(
+        id: 'd1',
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'B',
+        amount: 50.0,
+        creatorId: 'A',
+      ),
+      const Debt(
+        id: 'd2',
+        groupId: 'g1',
+        debtorId: 'B',
+        creditorId: 'C',
+        amount: 50.0,
+        creatorId: 'B',
+      ),
+      const Debt(
+        id: 'd3',
+        groupId: 'g1',
+        debtorId: 'C',
+        creditorId: 'A',
+        amount: 50.0,
+        creatorId: 'C',
+      ),
+    ];
+
+    final balances = Debt.calculateBalances(members, debts);
+
+    // Everyone's net balance should be zero
+    expect(balances['A'], 0.0);
+    expect(balances['B'], 0.0);
+    expect(balances['C'], 0.0);
+  });
+
+  test('GroupService addDebt and streamDebts with validation', () async {
+    final service = GroupService();
+
+    // Rejects non-positive amounts
+    expect(
+      () => service.addDebt(
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'B',
+        amount: 0,
+        creatorId: 'A',
+      ),
+      throwsA(predicate((e) => e.toString().contains('positive'))),
+    );
+
+    // Rejects same debtor and creditor
+    expect(
+      () => service.addDebt(
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'A',
+        amount: 50,
+        creatorId: 'A',
+      ),
+      throwsA(predicate((e) => e.toString().contains('different'))),
+    );
+
+    // Adds valid debt
+    final debt = await service.addDebt(
+      groupId: 'g1',
+      debtorId: 'A',
+      creditorId: 'B',
+      amount: 75.0,
+      note: 'Groceries',
+      creatorId: 'A',
+    );
+
+    expect(debt.id, isNotEmpty);
+    expect(debt.amount, 75.0);
+    expect(debt.note, 'Groceries');
+    expect(debt.status, 'open');
+
+    final debts = await service.streamDebts('g1').first;
+    expect(debts.length, 1);
+    expect(debts.first.id, debt.id);
+  });
+
+  testWidgets('Tapping a group opens its details page and shows debts and balances', (tester) async {
+    final service = GroupService();
+    final group = await service.createGroup(
+      name: 'Weekend Trip',
+      kind: GroupKind.trip,
+      creatorId: 'guest_user',
+    );
+    // Add another member via invitation
+    final token = await service.createInvitation(groupId: group.id, creatorId: 'guest_user');
+    await service.joinGroupWithToken(token, 'friend_456');
+
+    // Add a debt
+    await service.addDebt(
+      groupId: group.id,
+      debtorId: 'guest_user',
+      creditorId: 'friend_456',
+      amount: 40.0,
+      note: 'Gas',
+      creatorId: 'guest_user',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GroupsScreen(groupService: service),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tap on the group
+    await tester.tap(find.text('Weekend Trip'));
+    await tester.pumpAndSettle();
+
+    // Details screen is shown
+    expect(find.text('Member Balances'), findsOneWidget);
+    expect(find.text('Debts'), findsOneWidget);
+    expect(find.text('Gas'), findsOneWidget);
+    expect(find.text('40'), findsOneWidget);
+    expect(find.text('Add debt'), findsWidgets);
   });
 }
 

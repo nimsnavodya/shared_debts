@@ -47,6 +47,34 @@ service cloud.firestore {
 
       // 4. Delete – not allowed yet (features not implemented)
       allow delete: if false;
+
+      // ---------------------------------------------------------------------
+      // Debts subcollection
+      // ---------------------------------------------------------------------
+      match /debts/{debtId} {
+        // Only signed-in group members can read group debts
+        allow read: if isSignedIn()
+                    && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+
+        // Only signed-in group members can add a debt
+        // Debtor and creditor must both belong to the group and be different members
+        // Amount must be positive, status must be 'open', creator must match auth.uid
+        allow create: if isSignedIn()
+                      && request.resource.data.groupId == groupId
+                      && request.resource.data.creatorId == request.auth.uid
+                      && request.resource.data.status == 'open'
+                      && request.resource.data.amount is number
+                      && request.resource.data.amount > 0
+                      && request.resource.data.debtorId is string
+                      && request.resource.data.creditorId is string
+                      && request.resource.data.debtorId != request.resource.data.creditorId
+                      && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+                      && request.resource.data.debtorId in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+                      && request.resource.data.creditorId in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+
+        // Prevent users from changing or deleting debt records for now
+        allow update, delete: if false;
+      }
     }
 
     // ---------------------------------------------------------------------

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/group.dart';
 import '../services/auth_service.dart';
 import '../services/group_service.dart';
+import 'group_details_screen.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({
@@ -324,6 +325,18 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               tooltip: 'Create invitation',
                               onPressed: () => _createInvitation(group),
                             ),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => GroupDetailsScreen(
+                                    group: group,
+                                    groupService: _groupService,
+                                    authService: _authService,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         );
                       },
