@@ -75,6 +75,53 @@ service cloud.firestore {
         // Prevent users from changing or deleting debt records for now
         allow update, delete: if false;
       }
+
+      // ---------------------------------------------------------------------
+      // Payments subcollection
+      // ---------------------------------------------------------------------
+      match /payments/{paymentId} {
+        // Only signed-in group members can read payment requests and history
+        allow read: if isSignedIn()
+                    && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+
+        // Only the named payer (a group member) can create a pending payment request
+        allow create: if isSignedIn()
+                      && request.resource.data.groupId == groupId
+                      && request.resource.data.payerId == request.auth.uid
+                      && request.resource.data.createdBy == request.auth.uid
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.amount is number
+                      && request.resource.data.amount > 0
+                      && request.resource.data.recipientId is string
+                      && request.resource.data.recipientId != request.resource.data.payerId
+                      && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+                      && request.resource.data.recipientId in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+
+        // Only pending payments can be updated:
+        // - The named recipient can confirm it.
+        // - The named payer can cancel it.
+        // Core fields (groupId, payerId, recipientId, amount, createdBy, createdAt) cannot be modified.
+        allow update: if isSignedIn()
+                      && resource.data.status == 'pending'
+                      && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+                      && (
+                        (
+                          request.auth.uid == resource.data.recipientId
+                          && request.resource.data.status == 'confirmed'
+                          && request.resource.data.confirmedBy == request.auth.uid
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedBy', 'confirmedAt'])
+                        )
+                        || (
+                          request.auth.uid == resource.data.payerId
+                          && request.resource.data.status == 'cancelled'
+                          && request.resource.data.cancelledBy == request.auth.uid
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledBy', 'cancelledAt'])
+                        )
+                      );
+
+        // Keep payment history intact; never delete payment records
+        allow delete: if false;
+      }
     }
 
     // ---------------------------------------------------------------------

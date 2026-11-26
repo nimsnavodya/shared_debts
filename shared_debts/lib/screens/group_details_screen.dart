@@ -1308,3 +1308,117 @@ class _AddDebtDialogState extends State<_AddDebtDialog> {
     );
   }
 }
+
+class _RequestPaymentResult {
+  const _RequestPaymentResult({required this.amount, this.note});
+
+  final double amount;
+  final String? note;
+}
+
+class _RequestPaymentDialog extends StatefulWidget {
+  const _RequestPaymentDialog({
+    required this.payerLabel,
+    required this.recipientLabel,
+    required this.initialAmount,
+  });
+
+  final String payerLabel;
+  final String recipientLabel;
+  final String initialAmount;
+
+  @override
+  State<_RequestPaymentDialog> createState() => _RequestPaymentDialogState();
+}
+
+class _RequestPaymentDialogState extends State<_RequestPaymentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _amountController;
+  final _noteController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _amountController = TextEditingController(text: widget.initialAmount);
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    final parsed = double.tryParse(_amountController.text.trim());
+    if (parsed == null || parsed <= 0) return;
+    final note = _noteController.text.trim();
+    Navigator.pop(
+      context,
+      _RequestPaymentResult(
+        amount: parsed,
+        note: note.isNotEmpty ? note : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Send payment request'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${widget.payerLabel} → ${widget.recipientLabel}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _amountController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Amount paid',
+                border: OutlineInputBorder(),
+              ),
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) {
+                  return 'Enter an amount';
+                }
+                final parsed = double.tryParse(val.trim());
+                if (parsed == null || parsed <= 0) {
+                  return 'Enter a positive number';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _noteController,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Send request'),
+        ),
+      ],
+    );
+  }
+}
