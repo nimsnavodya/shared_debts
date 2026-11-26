@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../models/debt.dart';
 import '../models/group.dart';
+import '../models/payment.dart';
 import '../services/auth_service.dart';
 import '../services/group_service.dart';
 
@@ -259,142 +260,289 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
           }
 
           final debts = snapshot.data ?? const [];
-          final balances = Debt.calculateBalances(
-            widget.group.memberIds,
-            debts,
-          );
 
-          return CustomScrollView(
-            slivers: [
-              // -------------------------------------------------------------
-              // Member Balances Section
-              // -------------------------------------------------------------
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Member Balances',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      const SizedBox(height: 8),
-                      Card(
-                        elevation: 0,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest
-                            .withValues(alpha: 0.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .outlineVariant
-                                .withValues(alpha: 0.5),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          child: Column(
-                            children: [
-                              for (int i = 0;
-                                  i < widget.group.memberIds.length;
-                                  i++) ...[
-                                if (i > 0) const Divider(height: 1),
-                                _buildMemberBalanceRow(
-                                  memberId: widget.group.memberIds[i],
-                                  balance: balances[
-                                          widget.group.memberIds[i]] ??
-                                      0.0,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+          return StreamBuilder<List<Payment>>(
+            initialData: _groupService.getInitialPayments(widget.group.id),
+            stream: _groupService.streamPayments(widget.group.id),
+            builder: (context, paymentSnapshot) {
+              final payments = paymentSnapshot.data ?? const [];
+              final balances = Debt.calculateBalances(
+                widget.group.memberIds,
+                debts,
+                payments: payments,
+              );
+              final suggestions = Debt.calculateSuggestedPayments(balances);
+              final remainingByDebtId = Debt.calculateRemainingDebtAmounts(
+                debts,
+                payments,
+              );
+              final allSettled = balances.values.every((b) => b.abs() < 0.005);
+              final pendingPayments =
+                  payments.where((p) => p.isPending).toList();
+              final historyPayments =
+                  payments.where((p) => !p.isPending).toList();
 
-              // -------------------------------------------------------------
-              // Group Debts Section
-              // -------------------------------------------------------------
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Debts',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      Text(
-                        '${debts.length} total',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (debts.isEmpty)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
+              return CustomScrollView(
+                slivers: [
+                  // -----------------------------------------------------------
+                  // Member Balances Section
+                  // -----------------------------------------------------------
+                  SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.receipt_long_outlined,
-                            size: 56,
-                            color: Theme.of(context).colorScheme.outline,
-                          ),
-                          const SizedBox(height: 16),
                           Text(
-                            'No debts recorded yet',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            'Member Balances',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Tap "Add debt" below to record money owed between members.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.black54),
+                          Card(
+                            elevation: 0,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.5),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outlineVariant
+                                    .withValues(alpha: 0.5),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              child: Column(
+                                children: [
+                                  for (int i = 0;
+                                      i < widget.group.memberIds.length;
+                                      i++) ...[
+                                    if (i > 0) const Divider(height: 1),
+                                    _buildMemberBalanceRow(
+                                      memberId: widget.group.memberIds[i],
+                                      balance: balances[
+                                              widget.group.memberIds[i]] ??
+                                          0.0,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 80),
                         ],
                       ),
                     ),
                   ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final debt = debts[index];
-                        return _buildDebtCard(debt);
-                      },
-                      childCount: debts.length,
+
+                  // -----------------------------------------------------------
+                  // Suggested Payments Section
+                  // -----------------------------------------------------------
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Suggested payments',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          if (suggestions.isEmpty)
+                            Card(
+                              elevation: 0,
+                              color: Colors.green.shade50,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                side: BorderSide(color: Colors.green.shade200),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_outline,
+                                      color: Colors.green.shade700,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      'Everyone is settled up',
+                                      style: TextStyle(
+                                        color: Colors.green.shade800,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            Column(
+                              children: suggestions
+                                  .map(_buildSuggestedPaymentCard)
+                                  .toList(),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-            ],
+
+                  // -----------------------------------------------------------
+                  // Pending Payment Requests Section
+                  // -----------------------------------------------------------
+                  if (pendingPayments.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pending requests',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Column(
+                              children: pendingPayments
+                                  .map(_buildPendingPaymentCard)
+                                  .toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                  // -----------------------------------------------------------
+                  // Group Debts Section
+                  // -----------------------------------------------------------
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Debts',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            '${debts.length} total',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.outline,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  if (debts.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.receipt_long_outlined,
+                                size: 56,
+                                color: Theme.of(context).colorScheme.outline,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No debts recorded yet',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Tap "Add debt" below to record money owed between members.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.black54),
+                              ),
+                              const SizedBox(height: 80),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        0,
+                        16,
+                        historyPayments.isEmpty ? 96 : 12,
+                      ),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final debt = debts[index];
+                            final remaining =
+                                remainingByDebtId[debt.id] ?? debt.amount;
+                            return _buildDebtCard(debt, remaining, allSettled);
+                          },
+                          childCount: debts.length,
+                        ),
+                      ),
+                    ),
+
+                  // -----------------------------------------------------------
+                  // Payment History Section
+                  // -----------------------------------------------------------
+                  if (historyPayments.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Payment history',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 8),
+                            Column(
+                              children: historyPayments
+                                  .map(_buildPaymentHistoryCard)
+                                  .toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -485,9 +633,346 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     );
   }
 
-  Widget _buildDebtCard(Debt debt) {
+  Future<void> _openRequestPaymentDialog(SuggestedPayment suggestion) async {
+    final result = await showDialog<_RequestPaymentResult>(
+      context: context,
+      builder: (_) => _RequestPaymentDialog(
+        payerLabel: _formatMemberLabel(suggestion.payerId),
+        recipientLabel: _formatMemberLabel(suggestion.recipientId),
+        initialAmount: _formatAmount(suggestion.amount),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    try {
+      await _groupService.requestPayment(
+        groupId: widget.group.id,
+        payerId: suggestion.payerId,
+        recipientId: suggestion.recipientId,
+        amount: result.amount,
+        note: result.note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment request sent')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send payment request: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmPayment(Payment payment) async {
+    final userId = _currentUser?.uid;
+    if (userId == null) return;
+    try {
+      await _groupService.confirmPayment(
+        groupId: widget.group.id,
+        paymentId: payment.id,
+        userId: userId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment confirmed')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to confirm payment: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _cancelPayment(Payment payment) async {
+    final userId = _currentUser?.uid;
+    if (userId == null) return;
+    try {
+      await _groupService.cancelPayment(
+        groupId: widget.group.id,
+        paymentId: payment.id,
+        userId: userId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment request cancelled')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to cancel payment: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildSuggestedPaymentCard(SuggestedPayment suggestion) {
+    final payer = _formatMemberLabel(suggestion.payerId);
+    final recipient = _formatMemberLabel(suggestion.recipientId);
+    final amountText = _formatAmount(suggestion.amount);
+    final isCurrentUserPayer = _currentUser?.uid == suggestion.payerId;
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withValues(alpha: 0.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                '$payer pays $recipient — $amountText',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (isCurrentUserPayer) ...[
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                onPressed: () => _openRequestPaymentDialog(suggestion),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 34),
+                ),
+                child: const Text('I paid'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingPaymentCard(Payment payment) {
+    final payer = _formatMemberLabel(payment.payerId);
+    final recipient = _formatMemberLabel(payment.recipientId);
+    final amountText = _formatAmount(payment.amount);
+    final uid = _currentUser?.uid;
+    final isRecipient = uid == payment.recipientId;
+    final isPayer = uid == payment.payerId;
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      color: Colors.amber.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Colors.amber.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$payer → $recipient: $amountText',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade100,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Pending',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.amber.shade900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (payment.note != null && payment.note!.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                payment.note!.trim(),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+            if (isRecipient || isPayer) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (isPayer)
+                    TextButton(
+                      onPressed: () => _cancelPayment(payment),
+                      child: const Text('Cancel'),
+                    ),
+                  if (isRecipient)
+                    FilledButton(
+                      onPressed: () => _confirmPayment(payment),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                      ),
+                      child: const Text('Confirm'),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentHistoryCard(Payment payment) {
+    final payer = _formatMemberLabel(payment.payerId);
+    final recipient = _formatMemberLabel(payment.recipientId);
+    final amountText = _formatAmount(payment.amount);
+    final isConfirmed = payment.isConfirmed;
+    final badgeBg = isConfirmed ? Colors.green.shade50 : Colors.grey.shade100;
+    final badgeBorder =
+        isConfirmed ? Colors.green.shade200 : Colors.grey.shade300;
+    final badgeTextColor =
+        isConfirmed ? Colors.green.shade800 : Colors.grey.shade700;
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: Theme.of(context)
+              .colorScheme
+              .outlineVariant
+              .withValues(alpha: 0.5),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$payer paid $recipient',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (payment.note != null && payment.note!.trim().isNotEmpty)
+                    Text(
+                      payment.note!.trim(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  amountText,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: badgeBg,
+                    border: Border.all(color: badgeBorder),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isConfirmed ? 'Confirmed' : 'Cancelled',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: badgeTextColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDebtCard(Debt debt, double remaining, bool allSettled) {
     final debtor = _formatMemberLabel(debt.debtorId);
     final creditor = _formatMemberLabel(debt.creditorId);
+    final bool isSettled = allSettled || remaining <= 0.005;
+    final bool isPartial = !isSettled && remaining < debt.amount - 0.005;
+
+    final String statusLabel;
+    final Color statusBg;
+    final Color statusBorder;
+    final Color statusTextColor;
+
+    if (isSettled) {
+      statusLabel = 'Settled';
+      statusBg = Colors.green.shade50;
+      statusBorder = Colors.green.shade200;
+      statusTextColor = Colors.green.shade800;
+    } else if (isPartial) {
+      statusLabel = 'Partial (${_formatAmount(remaining)} left)';
+      statusBg = Colors.blue.shade50;
+      statusBorder = Colors.blue.shade200;
+      statusTextColor = Colors.blue.shade800;
+    } else {
+      statusLabel = 'Open';
+      statusBg = Colors.orange.shade50;
+      statusBorder = Colors.orange.shade200;
+      statusTextColor = Colors.orange.shade800;
+    }
 
     return Card(
       elevation: 0,
@@ -577,16 +1062,16 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    border: Border.all(color: Colors.orange.shade200),
+                    color: statusBg,
+                    border: Border.all(color: statusBorder),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'Open',
+                    statusLabel,
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: Colors.orange.shade800,
+                      color: statusTextColor,
                     ),
                   ),
                 ),
