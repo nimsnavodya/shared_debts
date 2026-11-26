@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/debt.dart';
 import '../models/group.dart';
+import '../models/payment.dart';
 
 class GroupService {
   GroupService({FirebaseFirestore? firestore}) : _customFirestore = firestore;
@@ -23,6 +24,11 @@ class GroupService {
   // In-memory storage for debts used in tests / fallback mode
   final Map<String, List<Debt>> _inMemoryDebts = {};
   final Map<String, StreamController<List<Debt>>> _inMemoryDebtControllers = {};
+
+  // In-memory storage for payments used in tests / fallback mode
+  final Map<String, List<Payment>> _inMemoryPayments = {};
+  final Map<String, StreamController<List<Payment>>>
+      _inMemoryPaymentControllers = {};
 
   FirebaseFirestore? get _firestore {
     if (_customFirestore != null) return _customFirestore;
@@ -51,6 +57,20 @@ class GroupService {
         onListen: () {
           final list = _inMemoryDebts[groupId] ?? const [];
           _inMemoryDebtControllers[groupId]?.add(List.unmodifiable(list));
+        },
+      ),
+    );
+  }
+
+  StreamController<List<Payment>> _getInMemoryPaymentController(
+    String groupId,
+  ) {
+    return _inMemoryPaymentControllers.putIfAbsent(
+      groupId,
+      () => StreamController<List<Payment>>.broadcast(
+        onListen: () {
+          final list = _inMemoryPayments[groupId] ?? const [];
+          _inMemoryPaymentControllers[groupId]?.add(List.unmodifiable(list));
         },
       ),
     );
@@ -382,6 +402,229 @@ class GroupService {
     return debt;
   }
 
+  // ---------------------------------------------------------------
+  //  Payments Management
+  // ---------------------------------------------------------------
+
+  List<Payment>? getInitialPayments(String groupId) {
+    if (_firestore == null) {
+      return List.unmodifiable(_inMemoryPayments[groupId] ?? const []);
+    }
+    return null;
+  }
+
+  Stream<List<Payment>> streamPayments(String groupId) {
+    final firestore = _firestore;
+    if (firestore != null) {
+      if (groupId.isEmpty) return Stream.value(const []);
+      return firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('payments')
+          .snapshots()
+          .map((snapshot) {
+            final payments = snapshot.docs.map((doc) {
+              return Payment.fromMap(doc.id, doc.data());
+            }).toList();
+
+            payments.sort((a, b) {
+              final aTime =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bTime =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bTime.compareTo(aTime);
+            });
+            return payments;
+          });
+    }
+
+    final controller = _getInMemoryPaymentController(groupId);
+    return controller.stream;
+  }
+
+  Future<Payment> requestPayment({
+    required String groupId,
+    required String payerId,
+    required String recipientId,
+    required double amount,
+    String? note,
+  }) async {
+    if (amount <= 0) {
+      throw Exception('Payment amount must be positive');
+    }
+    if (payerId == recipientId) {
+      throw Exception('Payer and recipient must be different members');
+    }
+    if (groupId.trim().isEmpty ||
+        payerId.trim().isEmpty ||
+        recipientId.trim().isEmpty) {
+      throw Exception('Group ID, payer, and recipient cannot be empty');
+    }
+
+    final firestore = _firestore;
+    final now = DateTime.now();
+    final cleanNote =
+        (note != null && note.trim().isNotEmpty) ? note.trim() : null;
+
+    if (firestore != null) {
+      final docRef = firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('payments')
+          .doc();
+
+      await docRef.set({
+        'groupId': groupId,
+        'payerId': payerId,
+        'recipientId': recipientId,
+        'amount': amount,
+        'status': 'pending',
+        'createdBy': payerId,
+        'createdAt': FieldValue.serverTimestamp(),
+        if (cleanNote != null) 'note': cleanNote,
+      });
+
+      return Payment(
+        id: docRef.id,
+        groupId: groupId,
+        payerId: payerId,
+        recipientId: recipientId,
+        amount: amount,
+        status: 'pending',
+        createdBy: payerId,
+        createdAt: now,
+        note: cleanNote,
+      );
+    }
+
+    final payment = Payment(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      groupId: groupId,
+      payerId: payerId,
+      recipientId: recipientId,
+      amount: amount,
+      status: 'pending',
+      createdBy: payerId,
+      createdAt: now,
+      note: cleanNote,
+    );
+
+    final list = _inMemoryPayments.putIfAbsent(groupId, () => []);
+    list.insert(0, payment);
+    _getInMemoryPaymentController(groupId).add(List.unmodifiable(list));
+    return payment;
+  }
+
+  Future<void> confirmPayment({
+    required String groupId,
+    required String paymentId,
+    required String userId,
+  }) async {
+    if (groupId.trim().isEmpty ||
+        paymentId.trim().isEmpty ||
+        userId.trim().isEmpty) {
+      throw Exception('Group ID, payment ID, and user ID are required');
+    }
+
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('payments')
+          .doc(paymentId)
+          .update({
+        'status': 'confirmed',
+        'confirmedBy': userId,
+        'confirmedAt': FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    final list = _inMemoryPayments[groupId];
+    if (list == null) throw Exception('Payment not found');
+    final idx = list.indexWhere((p) => p.id == paymentId);
+    if (idx == -1) throw Exception('Payment not found');
+
+    final existing = list[idx];
+    if (!existing.isPending) {
+      throw Exception('Only pending payments can be confirmed');
+    }
+    if (existing.recipientId != userId) {
+      throw Exception('Only the named recipient can confirm this payment');
+    }
+
+    list[idx] = Payment(
+      id: existing.id,
+      groupId: existing.groupId,
+      payerId: existing.payerId,
+      recipientId: existing.recipientId,
+      amount: existing.amount,
+      status: 'confirmed',
+      createdBy: existing.createdBy,
+      createdAt: existing.createdAt,
+      confirmedBy: userId,
+      confirmedAt: DateTime.now(),
+      note: existing.note,
+    );
+    _getInMemoryPaymentController(groupId).add(List.unmodifiable(list));
+  }
+
+  Future<void> cancelPayment({
+    required String groupId,
+    required String paymentId,
+    required String userId,
+  }) async {
+    if (groupId.trim().isEmpty ||
+        paymentId.trim().isEmpty ||
+        userId.trim().isEmpty) {
+      throw Exception('Group ID, payment ID, and user ID are required');
+    }
+
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('payments')
+          .doc(paymentId)
+          .update({
+        'status': 'cancelled',
+        'cancelledBy': userId,
+        'cancelledAt': FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    final list = _inMemoryPayments[groupId];
+    if (list == null) throw Exception('Payment not found');
+    final idx = list.indexWhere((p) => p.id == paymentId);
+    if (idx == -1) throw Exception('Payment not found');
+
+    final existing = list[idx];
+    if (!existing.isPending) {
+      throw Exception('Only pending payments can be cancelled');
+    }
+    if (existing.payerId != userId) {
+      throw Exception('Only the named payer can cancel this payment');
+    }
+
+    list[idx] = Payment(
+      id: existing.id,
+      groupId: existing.groupId,
+      payerId: existing.payerId,
+      recipientId: existing.recipientId,
+      amount: existing.amount,
+      status: 'cancelled',
+      createdBy: existing.createdBy,
+      createdAt: existing.createdAt,
+      cancelledBy: userId,
+      cancelledAt: DateTime.now(),
+      note: existing.note,
+    );
+    _getInMemoryPaymentController(groupId).add(List.unmodifiable(list));
+  }
+
   // Simple token generator - 12 alphanumeric characters
   String _generateToken() {
     const chars =
@@ -393,6 +636,9 @@ class GroupService {
   void dispose() {
     _inMemoryController?.close();
     for (final c in _inMemoryDebtControllers.values) {
+      c.close();
+    }
+    for (final c in _inMemoryPaymentControllers.values) {
       c.close();
     }
   }
