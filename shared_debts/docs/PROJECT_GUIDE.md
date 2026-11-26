@@ -89,6 +89,11 @@ We protect user data with Firestore rules:
   - **Read**: Only signed-in members of the group can view its debts.
   - **Create**: Only signed-in members of the group can record debts. The debtor and creditor must both be members of the group and must be different people. The amount must be a positive number (> 0), status must be `'open'`, and `creatorId` must match the caller.
   - **Update / Delete**: Modifications and deletions are denied to prevent tampering with financial records.
+- **Payments (`groups/{groupId}/payments/{paymentId}`)**:
+  - **Read**: Only signed-in members of the group can view payment requests and history.
+  - **Create**: Only the named payer (a group member) can send a `'pending'` payment request to another group member for a positive amount.
+  - **Update**: Only `'pending'` payments can be updated. The named recipient can confirm a payment (`'confirmed'`), and the named payer can cancel their own request (`'cancelled'`). No one else can change them, and confirmed or cancelled payments cannot be modified again.
+  - **Delete**: Payment deletion is disabled so the group keeps a permanent history.
 
 ### Firebase Console steps to create the Firestore database
 Before Firestore can accept data in production, it must be created once in your Firebase Console:
@@ -137,8 +142,11 @@ The app automatically calculates the net balance for each group member from all 
 ### Group Details Screen
 - **Opening a group**: Tapping any group tile on the Groups screen opens `GroupDetailsScreen`.
 - **Top Summary**: Displays group title, kind (Shared/Trip), member count, an **Invite member** button, and an **Add debt** action.
-- **Member Balances**: Shows every member's current net balance.
-- **Debts List**: Displays all recorded debts with debtor, creditor, amount, optional note, and "Open" status.
+- **Member Balances**: Shows every member's current net balance (calculated from open debts and confirmed payments).
+- **Suggested payments**: Shows the smallest number of transfers needed to settle all balances (for example, `Nimsara pays Member 2 — 400`). If everyone's balance is zero, it shows **Everyone is settled up**.
+- **Pending requests**: When a payer taps **I paid** and sends a payment request (for the full amount or a partial amount), it appears under **Pending requests**. Pending requests do not change balances yet. The payer can **Cancel** it, and the recipient can **Confirm** they received the money.
+- **Debts List**: Displays all recorded debts with debtor, creditor, amount, optional note, and status (**Open**, **Partial (amount left)**, or **Settled**). Original debt records are never deleted.
+- **Payment history**: Lists all confirmed and cancelled payments for the group.
 - **Add Debt Dialog**: Lets users select who owes and who receives (validating that debtor and creditor are different members), enter a positive amount, and add an optional note. If a group has fewer than 2 members, it prompts the user to invite a member first.
 
 ## Learning notes

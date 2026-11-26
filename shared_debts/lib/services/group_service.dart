@@ -481,7 +481,7 @@ class GroupService {
         'status': 'pending',
         'createdBy': payerId,
         'createdAt': FieldValue.serverTimestamp(),
-        if (cleanNote != null) 'note': cleanNote,
+        'note': ?cleanNote,
       });
 
       return Payment(

@@ -6,13 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_debts/app.dart';
 import 'package:shared_debts/models/debt.dart';
 import 'package:shared_debts/models/group.dart';
+import 'package:shared_debts/screens/group_details_screen.dart';
 import 'package:shared_debts/screens/groups_screen.dart';
 import 'package:shared_debts/screens/sign_in_screen.dart';
 import 'package:shared_debts/services/auth_service.dart';
 import 'package:shared_debts/services/group_service.dart';
 
 class _TestAuthService extends AuthService {
-  _TestAuthService({this.onSignIn, this.onSignOut}) : testUser = null;
+  _TestAuthService({this.testUser, this.onSignIn, this.onSignOut});
 
   final User? testUser;
   final Future<UserCredential?> Function()? onSignIn;
@@ -541,7 +542,317 @@ void main() {
     expect(find.textContaining('friend_456'), findsNothing);
     expect(find.textContaining('Creator'), findsWidgets);
     expect(find.textContaining('Member 2'), findsWidgets);
+    expect(find.text('Suggested payments'), findsOneWidget);
+    expect(find.text('Creator pays Member 2 — 40'), findsOneWidget);
   });
+
+  test('Suggested payments minimize transfers for chain debts', () {
+    final members = ['A', 'B', 'C'];
+    final debts = [
+      Debt(
+        id: 'd1',
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'B',
+        amount: 50,
+        creatorId: 'A',
+      ),
+      Debt(
+        id: 'd2',
+        groupId: 'g1',
+        debtorId: 'B',
+        creditorId: 'C',
+        amount: 50,
+        creatorId: 'B',
+      ),
+    ];
+
+    final balances = Debt.calculateBalances(members, debts);
+    final suggestions = Debt.calculateSuggestedPayments(balances);
+
+    expect(suggestions.length, 1);
+    expect(suggestions.first.payerId, 'A');
+    expect(suggestions.first.recipientId, 'C');
+    expect(suggestions.first.amount, 50);
+  });
+
+  test('Cycle debt results in zero balances and no suggested payments', () {
+    final members = ['A', 'B', 'C'];
+    final debts = [
+      Debt(
+        id: 'd1',
+        groupId: 'g1',
+        debtorId: 'A',
+        creditorId: 'B',
+        amount: 50,
+        creatorId: 'A',
+      ),
+      Debt(
+        id: 'd2',
+        groupId: 'g1',
+        debtorId: 'B',
+        creditorId: 'C',
+        amount: 50,
+        creatorId: 'B',
+      ),
+      Debt(
+        id: 'd3',
+        groupId: 'g1',
+        debtorId: 'C',
+        creditorId: 'A',
+        amount: 50,
+        creatorId: 'C',
+      ),
+    ];
+
+    final balances = Debt.calculateBalances(members, debts);
+    final suggestions = Debt.calculateSuggestedPayments(balances);
+
+    expect(balances['A'], 0.0);
+    expect(balances['B'], 0.0);
+    expect(balances['C'], 0.0);
+    expect(suggestions, isEmpty);
+  });
+
+  test('Pending payment does not change balances; only recipient can confirm',
+      () async {
+    final service = GroupService();
+    final group = await service.createGroup(
+      name: 'Trip',
+      kind: GroupKind.trip,
+      creatorId: 'user_a',
+    );
+    final token =
+        await service.createInvitation(groupId: group.id, creatorId: 'user_a');
+    await service.joinGroupWithToken(token, 'user_b');
+
+    final debt = await service.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 100.0,
+      creatorId: 'user_a',
+    );
+
+    final payment = await service.requestPayment(
+      groupId: group.id,
+      payerId: 'user_a',
+      recipientId: 'user_b',
+      amount: 100.0,
+    );
+
+    // Pending payment must NOT change balances
+    var payments = service.getInitialPayments(group.id)!;
+    var balances = Debt.calculateBalances(
+      ['user_a', 'user_b'],
+      [debt],
+      payments: payments,
+    );
+    expect(balances['user_a'], -100.0);
+    expect(balances['user_b'], 100.0);
+
+    // Payer cannot confirm their own payment
+    await expectLater(
+      () => service.confirmPayment(
+        groupId: group.id,
+        paymentId: payment.id,
+        userId: 'user_a',
+      ),
+      throwsException,
+    );
+
+    // Unrelated user cannot confirm
+    await expectLater(
+      () => service.confirmPayment(
+        groupId: group.id,
+        paymentId: payment.id,
+        userId: 'user_c',
+      ),
+      throwsException,
+    );
+
+    // Recipient cannot cancel payer's request
+    await expectLater(
+      () => service.cancelPayment(
+        groupId: group.id,
+        paymentId: payment.id,
+        userId: 'user_b',
+      ),
+      throwsException,
+    );
+
+    // Recipient confirms -> balances update to 0
+    await service.confirmPayment(
+      groupId: group.id,
+      paymentId: payment.id,
+      userId: 'user_b',
+    );
+
+    payments = service.getInitialPayments(group.id)!;
+    balances = Debt.calculateBalances(
+      ['user_a', 'user_b'],
+      [debt],
+      payments: payments,
+    );
+    expect(balances['user_a'], 0.0);
+    expect(balances['user_b'], 0.0);
+    expect(Debt.calculateSuggestedPayments(balances), isEmpty);
+  });
+
+  test('Partial payment leaves remaining amount open', () async {
+    final service = GroupService();
+    final group = await service.createGroup(
+      name: 'House',
+      kind: GroupKind.shared,
+      creatorId: 'user_a',
+    );
+    final token =
+        await service.createInvitation(groupId: group.id, creatorId: 'user_a');
+    await service.joinGroupWithToken(token, 'user_b');
+
+    final debt = await service.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 100.0,
+      creatorId: 'user_a',
+    );
+
+    // Pay 40 out of 100
+    final payment = await service.requestPayment(
+      groupId: group.id,
+      payerId: 'user_a',
+      recipientId: 'user_b',
+      amount: 40.0,
+    );
+    await service.confirmPayment(
+      groupId: group.id,
+      paymentId: payment.id,
+      userId: 'user_b',
+    );
+
+    final payments = service.getInitialPayments(group.id)!;
+    final balances = Debt.calculateBalances(
+      ['user_a', 'user_b'],
+      [debt],
+      payments: payments,
+    );
+    expect(balances['user_a'], -60.0);
+    expect(balances['user_b'], 60.0);
+
+    final remaining = Debt.calculateRemainingDebtAmounts([debt], payments);
+    expect(remaining[debt.id], 60.0);
+
+    final suggestions = Debt.calculateSuggestedPayments(balances);
+    expect(suggestions.length, 1);
+    expect(suggestions.first.amount, 60.0);
+  });
+
+  testWidgets(
+      'Payer sends I paid request and Recipient confirms on GroupDetailsScreen',
+      (tester) async {
+    final service = GroupService();
+    final group = await service.createGroup(
+      name: 'Dinner',
+      kind: GroupKind.shared,
+      creatorId: 'user_a',
+    );
+    final token =
+        await service.createInvitation(groupId: group.id, creatorId: 'user_a');
+    await service.joinGroupWithToken(token, 'user_b');
+
+    final updatedGroup = Group(
+      id: group.id,
+      name: group.name,
+      kind: group.kind,
+      memberCount: 2,
+      creatorId: 'user_a',
+      memberIds: const ['user_a', 'user_b'],
+    );
+
+    await service.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 400.0,
+      creatorId: 'user_a',
+    );
+
+    // 1. Payer ('user_a', named 'Nimsara') views GroupDetailsScreen
+    final payerAuth = _TestAuthService(
+      testUser: _FakeUser(uid: 'user_a', displayName: 'Nimsara'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GroupDetailsScreen(
+          group: updatedGroup,
+          groupService: service,
+          authService: payerAuth,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Suggested payments'), findsOneWidget);
+    expect(find.text('Nimsara (You) pays Member 2 — 400'), findsOneWidget);
+    expect(find.text('I paid'), findsOneWidget);
+
+    // Tap "I paid" and send partial payment of 150
+    await tester.tap(find.text('I paid'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField).first, '150');
+    await tester.tap(find.text('Send request'));
+    await tester.pumpAndSettle();
+
+    // Pending request shown; balance unchanged (still owes 400)
+    expect(find.text('Pending requests'), findsOneWidget);
+    expect(find.text('Pending'), findsOneWidget);
+    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.text('Confirm'), findsNothing);
+    expect(find.text('-400'), findsOneWidget);
+
+    // 2. Recipient ('user_b') views GroupDetailsScreen and confirms
+    final recipientAuth = _TestAuthService(
+      testUser: _FakeUser(uid: 'user_b', displayName: 'Friend'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GroupDetailsScreen(
+          group: updatedGroup,
+          groupService: service,
+          authService: recipientAuth,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Confirm'), findsOneWidget);
+    await tester.tap(find.text('Confirm'));
+    await tester.pumpAndSettle();
+
+    // Balance updated to 250 remaining, partial status shown, history recorded
+    expect(find.text('Payment history'), findsOneWidget);
+    expect(find.text('Confirmed'), findsOneWidget);
+    expect(find.text('-250'), findsOneWidget);
+    expect(find.text('+250'), findsOneWidget);
+    expect(find.text('Partial (250 left)'), findsOneWidget);
+  });
+}
+
+class _FakeUser implements User {
+  _FakeUser({required this.uid, this.displayName});
+
+  @override
+  final String uid;
+
+  @override
+  final String? displayName;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _MockGroupService extends GroupService {

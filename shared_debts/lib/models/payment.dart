@@ -66,11 +66,11 @@ class Payment {
       'createdAt': createdAt != null
           ? Timestamp.fromDate(createdAt!)
           : FieldValue.serverTimestamp(),
-      if (confirmedBy != null) 'confirmedBy': confirmedBy,
-      if (confirmedAt != null) 'confirmedAt': Timestamp.fromDate(confirmedAt!),
-      if (cancelledBy != null) 'cancelledBy': cancelledBy,
-      if (cancelledAt != null) 'cancelledAt': Timestamp.fromDate(cancelledAt!),
-      if (note != null && note!.trim().isNotEmpty) 'note': note!.trim(),
+      'confirmedBy': ?confirmedBy,
+      'confirmedAt': ?(confirmedAt != null ? Timestamp.fromDate(confirmedAt!) : null),
+      'cancelledBy': ?cancelledBy,
+      'cancelledAt': ?(cancelledAt != null ? Timestamp.fromDate(cancelledAt!) : null),
+      'note': ?(note != null && note!.trim().isNotEmpty ? note!.trim() : null),
     };
   }
 

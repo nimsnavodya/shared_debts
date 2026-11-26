@@ -25,14 +25,25 @@ class GroupDetailsScreen extends StatefulWidget {
 }
 
 class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
-  late final GroupService _groupService;
-  late final AuthService _authService;
+  late GroupService _groupService;
+  late AuthService _authService;
 
   @override
   void initState() {
     super.initState();
     _groupService = widget.groupService ?? GroupService();
     _authService = widget.authService ?? AuthService();
+  }
+
+  @override
+  void didUpdateWidget(covariant GroupDetailsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.groupService != oldWidget.groupService) {
+      _groupService = widget.groupService ?? GroupService();
+    }
+    if (widget.authService != oldWidget.authService) {
+      _authService = widget.authService ?? AuthService();
+    }
   }
 
   User? get _currentUser => _authService.currentUser;
