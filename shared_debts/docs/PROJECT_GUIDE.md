@@ -75,10 +75,20 @@ We use `cloud_firestore` to save and load groups in real time from Google Cloud 
 
 ### Security Rules (`firestore.rules`)
 We protect user data with Firestore rules:
-- **Read**: Only signed-in users who belong to the group (`request.auth.uid in resource.data.memberIds`) can view the group.
-- **Create**: Only authenticated users can create groups, where `creatorId` matches their Firebase UID and `memberIds` starts with only their UID.
-- **Update**: Only existing members can update group information. Non-members cannot add themselves to groups they do not belong to.
-- **Delete**: Only the group creator can delete their group.
+- **Groups**:
+  - **Read**: Only signed-in users who belong to the group (`request.auth.uid in resource.data.memberIds`) can view the group.
+  - **Create**: Only authenticated users can create groups, where `creatorId` matches their Firebase UID and `memberIds` starts with only their UID.
+  - **Update**: Only existing members can update group information, or new members joining with a valid one-time invitation token.
+  - **Delete**: Group deletion is disabled for now.
+- **Invitations (`invitations/{token}`)**:
+  - **Create**: Only current group members can create an invitation token for their group.
+  - **Get**: Any signed-in user who enters the token can look it up (`allow get`).
+  - **List**: Collection browsing is forbidden (`allow list: if false`) to prevent discovering tokens.
+  - **Delete**: The token is deleted after a user joins so it cannot be reused.
+- **Debts (`groups/{groupId}/debts/{debtId}`)**:
+  - **Read**: Only signed-in members of the group can view its debts.
+  - **Create**: Only signed-in members of the group can record debts. The debtor and creditor must both be members of the group and must be different people. The amount must be a positive number (> 0), status must be `'open'`, and `creatorId` must match the caller.
+  - **Update / Delete**: Modifications and deletions are denied to prevent tampering with financial records.
 
 ### Firebase Console steps to create the Firestore database
 Before Firestore can accept data in production, it must be created once in your Firebase Console:
@@ -88,6 +98,48 @@ Before Firestore can accept data in production, it must be created once in your 
 4. Choose a location closest to your users (e.g. `nam5 (us-central)`).
 5. Choose **Production mode** (or test mode) and click **Create**.
 6. Switch to the **Rules** tab, paste the rules from `firestore.rules`, and click **Publish**.
+
+## Debt Management & Net Balances
+
+### How debts are stored
+Debts are stored in a dedicated subcollection under each group: `groups/{groupId}/debts/{debtId}`.
+1. **Document Fields**:
+   - `groupId` (String): ID of the group the debt belongs to.
+   - `debtorId` (String): Firebase UID of the person who owes money.
+   - `creditorId` (String): Firebase UID of the person who should receive the money.
+   - `amount` (Number): The positive monetary amount owed.
+   - `note` (String, optional): Description of what the debt was for (e.g. "Dinner", "Gas").
+   - `creatorId` (String): Firebase UID of the person who recorded the debt.
+   - `createdAt` (Timestamp): Server timestamp when the record was created.
+   - `status` (String): Default `'open'`. (Settling/closing debts will be added in a future update).
+
+### How member balances are calculated
+The app automatically calculates the net balance for each group member from all `'open'` debts:
+1. Every member starts with a balance of `0.0`.
+2. For each open debt:
+   - The **debtor** owes money: their balance decreases by `amount` (`-amount`).
+   - The **creditor** is owed money: their balance increases by `amount` (`+amount`).
+3. Example (Simple Debt):
+   - Member A owes Member B `50`.
+   - Member A balance: `-50` (owes 50).
+   - Member B balance: `+50` (is owed 50).
+4. Example (Cycle Debt):
+   - Member A owes Member B `50`.
+   - Member B owes Member C `50`.
+   - Member C owes Member A `50`.
+   - All three net balances equal `0` (they cancel each other out).
+5. Formatting:
+   - Positive balances display in green (`+50.00` - "is owed 50.00").
+   - Negative balances display in red (`-50.00` - "owes 50.00").
+   - Zero balances display in grey (`0` - "settled up").
+   - No hardcoded currency symbols are used until a currency preference is selected.
+
+### Group Details Screen
+- **Opening a group**: Tapping any group tile on the Groups screen opens `GroupDetailsScreen`.
+- **Top Summary**: Displays group title, kind (Shared/Trip), member count, an **Invite member** button, and an **Add debt** action.
+- **Member Balances**: Shows every member's current net balance.
+- **Debts List**: Displays all recorded debts with debtor, creditor, amount, optional note, and "Open" status.
+- **Add Debt Dialog**: Lets users select who owes and who receives (validating that debtor and creditor are different members), enter a positive amount, and add an optional note. If a group has fewer than 2 members, it prompts the user to invite a member first.
 
 ## Learning notes
 
