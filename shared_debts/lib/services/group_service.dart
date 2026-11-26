@@ -240,6 +240,31 @@ class GroupService {
     }
   }
 
+  Future<void> revokeInvitation({
+    required String token,
+    required String userId,
+  }) async {
+    if (token.trim().isEmpty || userId.trim().isEmpty) {
+      throw Exception('Token and user ID are required');
+    }
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('invitations').doc(token).delete();
+    } else {
+      final inv = _inMemoryInvitations[token];
+      if (inv == null) throw Exception('Invalid invitation');
+      final groupId = inv['groupId']!;
+      final group = _inMemoryGroups.firstWhere(
+        (g) => g.id == groupId,
+        orElse: () => throw Exception('Group not found'),
+      );
+      if (inv['creatorId'] != userId && !group.memberIds.contains(userId)) {
+        throw Exception('Unauthorized to delete invitation');
+      }
+      _inMemoryInvitations.remove(token);
+    }
+  }
+
   // ---------------------------------------------------------------
   //  Debts Management
   // ---------------------------------------------------------------

@@ -331,6 +331,23 @@ void main() {
       () => service.joinGroupWithToken(validToken, 'user_1'),
       throwsA(predicate((e) => e.toString().contains('already a member'))),
     );
+
+    // Unrelated user cannot revoke another group's invitation
+    final token2 = await service.createInvitation(
+      groupId: group.id,
+      creatorId: 'user_1',
+    );
+    expect(
+      () => service.revokeInvitation(token: token2, userId: 'unrelated_user'),
+      throwsA(predicate((e) => e.toString().contains('Unauthorized'))),
+    );
+
+    // Creator can revoke the invitation
+    await service.revokeInvitation(token: token2, userId: 'user_1');
+    expect(
+      () => service.joinGroupWithToken(token2, 'new_user'),
+      throwsA(predicate((e) => e.toString().contains('Invalid invitation'))),
+    );
   });
 
   test('Debt model converts to and from map with correct fields', () {
@@ -516,7 +533,14 @@ void main() {
     expect(find.text('Debts'), findsOneWidget);
     expect(find.text('Gas'), findsOneWidget);
     expect(find.text('40'), findsOneWidget);
+    expect(find.text('Open'), findsOneWidget);
     expect(find.text('Add debt'), findsWidgets);
+
+    // Verify raw UID is NOT shown; formatted readable name is shown instead
+    expect(find.textContaining('guest_user'), findsNothing);
+    expect(find.textContaining('friend_456'), findsNothing);
+    expect(find.textContaining('Creator'), findsWidgets);
+    expect(find.textContaining('Member 2'), findsWidgets);
   });
 }
 

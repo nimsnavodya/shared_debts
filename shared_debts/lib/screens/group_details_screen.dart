@@ -44,8 +44,15 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       }
       return 'You';
     }
+    if (memberId == widget.group.creatorId) {
+      return 'Creator';
+    }
+    final index = widget.group.memberIds.indexOf(memberId);
+    if (index != -1) {
+      return 'Member ${index + 1}';
+    }
     final short = memberId.length > 6 ? memberId.substring(0, 6) : memberId;
-    return 'Member ($short)';
+    return 'Member $short';
   }
 
   String _formatAmount(double amount) {
@@ -479,75 +486,111 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   }
 
   Widget _buildDebtCard(Debt debt) {
+    final debtor = _formatMemberLabel(debt.debtorId);
+    final creditor = _formatMemberLabel(debt.creditorId);
+
     return Card(
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: CircleAvatar(
-          backgroundColor: Theme.of(context)
+        side: BorderSide(
+          color: Theme.of(context)
               .colorScheme
-              .primaryContainer
-              .withValues(alpha: 0.7),
-          child: Icon(
-            Icons.swap_horiz,
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
-          ),
+              .outlineVariant
+              .withValues(alpha: 0.5),
         ),
-        title: RichText(
-          text: TextSpan(
-            style: DefaultTextStyle.of(context).style,
-            children: [
-              TextSpan(
-                text: _formatMemberLabel(debt.debtorId),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const TextSpan(text: ' owes '),
-              TextSpan(
-                text: _formatMemberLabel(debt.creditorId),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-        ),
-        subtitle: debt.note != null && debt.note!.isNotEmpty
-            ? Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  debt.note!,
-                  style: TextStyle(color: Colors.grey.shade700),
-                ),
-              )
-            : null,
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(
-              _formatAmount(debt.amount),
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.7),
+              child: Icon(
+                Icons.swap_horiz,
+                size: 20,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
               ),
             ),
-            const SizedBox(height: 2),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                border: Border.all(color: Colors.orange.shade200),
-                borderRadius: BorderRadius.circular(6),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text.rich(
+                    TextSpan(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.black87,
+                            fontSize: 14,
+                          ),
+                      children: [
+                        TextSpan(
+                          text: debtor,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const TextSpan(text: ' owes '),
+                        TextSpan(
+                          text: creditor,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (debt.note != null && debt.note!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      debt.note!.trim(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
               ),
-              child: Text(
-                'Open',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.orange.shade800,
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _formatAmount(debt.amount),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    border: Border.all(color: Colors.orange.shade200),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Open',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange.shade800,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

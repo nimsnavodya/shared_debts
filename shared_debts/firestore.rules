@@ -93,8 +93,17 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow list: if false;
 
-      // After a user joins, the token is deleted.
-      allow delete: if isSignedIn();
+      // Only the invitation creator or a verified member of the group can delete it.
+      // When an invited user joins, their UID is added to the group's memberIds first,
+      // which permits them to delete the consumed token and prevents unrelated users from disrupting it.
+      allow delete: if isSignedIn()
+                     && (
+                       request.auth.uid == resource.data.creatorId
+                       || (
+                         exists(/databases/$(database)/documents/groups/$(resource.data.groupId))
+                         && request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.memberIds
+                       )
+                     );
 
       // No updates – an invitation is immutable.
       allow update: if false;
