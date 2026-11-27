@@ -1099,6 +1099,12 @@ class _FakeUser implements User {
   final String? displayName;
 
   @override
+  String? get email => null;
+
+  @override
+  String? get photoURL => null;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

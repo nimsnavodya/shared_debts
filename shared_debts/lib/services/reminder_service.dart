@@ -49,7 +49,7 @@ class FlutterNotificationScheduler implements NotificationScheduler {
       macOS: darwinSettings,
     );
 
-    await _plugin.initialize(settings: initSettings);
+    await _plugin.initialize(initSettings);
     _initialized = true;
   }
 
@@ -103,11 +103,11 @@ class FlutterNotificationScheduler implements NotificationScheduler {
     );
 
     await _plugin.zonedSchedule(
-      id: id,
-      title: title,
-      body: body,
-      scheduledDate: tz.TZDateTime.from(scheduledAt, tz.local),
-      notificationDetails: details,
+      id,
+      title,
+      body,
+      tz.TZDateTime.from(scheduledAt, tz.local),
+      details,
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
     );
   }
@@ -116,7 +116,7 @@ class FlutterNotificationScheduler implements NotificationScheduler {
   Future<void> cancelReminder(int id) async {
     await initialize();
     if (kIsWeb) return;
-    await _plugin.cancel(id: id);
+    await _plugin.cancel(id);
   }
 
   @override
