@@ -6,11 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_debts/app.dart';
 import 'package:shared_debts/models/debt.dart';
 import 'package:shared_debts/models/group.dart';
+import 'package:shared_debts/models/reminder_settings.dart';
 import 'package:shared_debts/screens/group_details_screen.dart';
 import 'package:shared_debts/screens/groups_screen.dart';
 import 'package:shared_debts/screens/sign_in_screen.dart';
 import 'package:shared_debts/services/auth_service.dart';
 import 'package:shared_debts/services/group_service.dart';
+import 'package:shared_debts/services/reminder_service.dart';
 
 class _TestAuthService extends AuthService {
   _TestAuthService({this.testUser, this.onSignIn, this.onSignOut});
