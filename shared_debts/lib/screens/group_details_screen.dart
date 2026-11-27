@@ -7,6 +7,7 @@ import '../models/group.dart';
 import '../models/payment.dart';
 import '../services/auth_service.dart';
 import '../services/group_service.dart';
+import '../services/reminder_service.dart';
 
 class GroupDetailsScreen extends StatefulWidget {
   const GroupDetailsScreen({
@@ -14,11 +15,13 @@ class GroupDetailsScreen extends StatefulWidget {
     required this.group,
     this.groupService,
     this.authService,
+    this.reminderService,
   });
 
   final Group group;
   final GroupService? groupService;
   final AuthService? authService;
+  final ReminderService? reminderService;
 
   @override
   State<GroupDetailsScreen> createState() => _GroupDetailsScreenState();
@@ -27,12 +30,14 @@ class GroupDetailsScreen extends StatefulWidget {
 class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   late GroupService _groupService;
   late AuthService _authService;
+  late ReminderService _reminderService;
 
   @override
   void initState() {
     super.initState();
     _groupService = widget.groupService ?? GroupService();
     _authService = widget.authService ?? AuthService();
+    _reminderService = widget.reminderService ?? ReminderService();
   }
 
   @override
@@ -43,6 +48,9 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
     }
     if (widget.authService != oldWidget.authService) {
       _authService = widget.authService ?? AuthService();
+    }
+    if (widget.reminderService != oldWidget.reminderService) {
+      _reminderService = widget.reminderService ?? ReminderService();
     }
   }
 
@@ -292,6 +300,21 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                   payments.where((p) => p.isPending).toList();
               final historyPayments =
                   payments.where((p) => !p.isPending).toList();
+
+              final currentUid = _currentUser?.uid;
+              if (currentUid != null && currentUid.isNotEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  final settings =
+                      await _groupService.getReminderSettings(currentUid);
+                  await _reminderService.refreshForGroup(
+                    group: widget.group,
+                    userId: currentUid,
+                    debts: debts,
+                    payments: payments,
+                    settings: settings,
+                  );
+                });
+              }
 
               return CustomScrollView(
                 slivers: [

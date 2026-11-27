@@ -5,17 +5,20 @@ import 'screens/groups_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'services/auth_service.dart';
 import 'services/group_service.dart';
+import 'services/reminder_service.dart';
 
 class SharedDebtsApp extends StatelessWidget {
   const SharedDebtsApp({
     super.key,
     this.authService,
     this.groupService,
+    this.reminderService,
     this.home,
   });
 
   final AuthService? authService;
   final GroupService? groupService;
+  final ReminderService? reminderService;
   final Widget? home;
 
   @override
@@ -31,6 +34,7 @@ class SharedDebtsApp extends StatelessWidget {
           _AuthGate(
             authService: authService ?? AuthService(),
             groupService: groupService,
+            reminderService: reminderService,
           ),
     );
   }
@@ -40,10 +44,12 @@ class _AuthGate extends StatelessWidget {
   const _AuthGate({
     required this.authService,
     this.groupService,
+    this.reminderService,
   });
 
   final AuthService authService;
   final GroupService? groupService;
+  final ReminderService? reminderService;
 
   @override
   Widget build(BuildContext context) {
@@ -66,6 +72,7 @@ class _AuthGate extends StatelessWidget {
         return GroupsScreen(
           authService: authService,
           groupService: groupService,
+          reminderService: reminderService,
         );
       },
     );

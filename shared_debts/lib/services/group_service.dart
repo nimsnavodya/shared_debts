@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../models/debt.dart';
 import '../models/group.dart';
 import '../models/payment.dart';
+import '../models/reminder_settings.dart';
 
 class GroupService {
   GroupService({FirebaseFirestore? firestore}) : _customFirestore = firestore;
@@ -29,6 +30,11 @@ class GroupService {
   final Map<String, List<Payment>> _inMemoryPayments = {};
   final Map<String, StreamController<List<Payment>>>
       _inMemoryPaymentControllers = {};
+
+  // In-memory storage for personal reminder settings
+  final Map<String, ReminderSettings> _inMemoryReminderSettings = {};
+  final Map<String, StreamController<ReminderSettings>>
+      _inMemoryReminderControllers = {};
 
   FirebaseFirestore? get _firestore {
     if (_customFirestore != null) return _customFirestore;
@@ -641,5 +647,131 @@ class GroupService {
     for (final c in _inMemoryPaymentControllers.values) {
       c.close();
     }
+    for (final c in _inMemoryReminderControllers.values) {
+      c.close();
+    }
+  }
+
+  // ---------------------------------------------------------------
+  //  Personal Reminder Settings & One-Shot Sync Helpers
+  // ---------------------------------------------------------------
+
+  StreamController<ReminderSettings> _getInMemoryReminderController(
+    String userId,
+  ) {
+    return _inMemoryReminderControllers.putIfAbsent(
+      userId,
+      () => StreamController<ReminderSettings>.broadcast(
+        onListen: () {
+          final current =
+              _inMemoryReminderSettings[userId] ?? const ReminderSettings();
+          _inMemoryReminderControllers[userId]?.add(current);
+        },
+      ),
+    );
+  }
+
+  Future<ReminderSettings> getReminderSettings(String userId) async {
+    if (userId.trim().isEmpty) return const ReminderSettings();
+    final firestore = _firestore;
+    if (firestore != null) {
+      final doc = await firestore.collection('users').doc(userId).get();
+      if (!doc.exists) return const ReminderSettings();
+      return ReminderSettings.fromMap(doc.data());
+    }
+    return _inMemoryReminderSettings[userId] ?? const ReminderSettings();
+  }
+
+  Stream<ReminderSettings> streamReminderSettings(String userId) {
+    if (userId.trim().isEmpty) {
+      return Stream.value(const ReminderSettings());
+    }
+    final firestore = _firestore;
+    if (firestore != null) {
+      return firestore.collection('users').doc(userId).snapshots().map((doc) {
+        if (!doc.exists) return const ReminderSettings();
+        return ReminderSettings.fromMap(doc.data());
+      });
+    }
+    return _getInMemoryReminderController(userId).stream;
+  }
+
+  Future<void> saveReminderSettings({
+    required String userId,
+    required ReminderSettings settings,
+  }) async {
+    if (userId.trim().isEmpty) {
+      throw Exception('User must be signed in');
+    }
+    if (settings.intervalDays < ReminderSettings.minIntervalDays ||
+        settings.intervalDays > ReminderSettings.maxIntervalDays) {
+      throw Exception(
+        'Reminder interval must be between '
+        '${ReminderSettings.minIntervalDays} and '
+        '${ReminderSettings.maxIntervalDays} days',
+      );
+    }
+
+    final firestore = _firestore;
+    if (firestore != null) {
+      await firestore.collection('users').doc(userId).set(
+            settings.toMap(),
+            SetOptions(merge: true),
+          );
+      return;
+    }
+
+    final updated = settings.copyWith(updatedAt: DateTime.now());
+    _inMemoryReminderSettings[userId] = updated;
+    _getInMemoryReminderController(userId).add(updated);
+  }
+
+  Future<List<Group>> fetchGroupsOnce(String userId) async {
+    if (userId.trim().isEmpty) return const [];
+    final firestore = _firestore;
+    if (firestore != null) {
+      final snapshot = await firestore
+          .collection('groups')
+          .where('memberIds', arrayContains: userId)
+          .get();
+      return snapshot.docs
+          .map((doc) => Group.fromMap(doc.id, doc.data()))
+          .toList();
+    }
+    return _inMemoryGroups
+        .where((g) => g.memberIds.contains(userId))
+        .toList();
+  }
+
+  Future<List<Debt>> fetchDebtsOnce(String groupId) async {
+    if (groupId.trim().isEmpty) return const [];
+    final firestore = _firestore;
+    if (firestore != null) {
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('debts')
+          .get();
+      return snapshot.docs
+          .map((doc) => Debt.fromMap(doc.id, doc.data()))
+          .toList();
+    }
+    return List.unmodifiable(_inMemoryDebts[groupId] ?? const []);
+  }
+
+  Future<List<Payment>> fetchPaymentsOnce(String groupId) async {
+    if (groupId.trim().isEmpty) return const [];
+    final firestore = _firestore;
+    if (firestore != null) {
+      final snapshot = await firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('payments')
+          .get();
+      return snapshot.docs
+          .map((doc) => Payment.fromMap(doc.id, doc.data()))
+          .toList();
+    }
+    return List.unmodifiable(_inMemoryPayments[groupId] ?? const []);
   }
 }

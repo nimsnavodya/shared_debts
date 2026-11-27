@@ -155,5 +155,23 @@ service cloud.firestore {
       // No updates – an invitation is immutable.
       allow update: if false;
     }
+
+    // ---------------------------------------------------------------------
+    // Users collection – personal reminder preferences
+    // ---------------------------------------------------------------------
+    match /users/{userId} {
+      // Only the signed-in user can read their own preference document
+      allow read: if isSignedIn() && request.auth.uid == userId;
+
+      // Only the signed-in user can create or update their own reminder preference
+      allow create, update: if isSignedIn()
+                            && request.auth.uid == userId
+                            && request.resource.data.reminderEnabled is bool
+                            && request.resource.data.reminderIntervalDays is int
+                            && request.resource.data.reminderIntervalDays >= 1
+                            && request.resource.data.reminderIntervalDays <= 365;
+
+      allow delete: if false;
+    }
   }
 }

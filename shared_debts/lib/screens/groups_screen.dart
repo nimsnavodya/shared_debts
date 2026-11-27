@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/group.dart';
+import '../models/reminder_settings.dart';
 import '../services/auth_service.dart';
 import '../services/group_service.dart';
+import '../services/reminder_service.dart';
 import 'group_details_screen.dart';
 
 class GroupsScreen extends StatefulWidget {
@@ -12,29 +14,151 @@ class GroupsScreen extends StatefulWidget {
     super.key,
     this.authService,
     this.groupService,
+    this.reminderService,
   });
 
   final AuthService? authService;
   final GroupService? groupService;
+  final ReminderService? reminderService;
 
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
 }
 
-class _GroupsScreenState extends State<GroupsScreen> {
+class _GroupsScreenState extends State<GroupsScreen>
+    with WidgetsBindingObserver {
   late final AuthService _authService;
   late final GroupService _groupService;
+  late final ReminderService _reminderService;
   // Holds temporary token input when joining
   String tokenInput = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _authService = widget.authService ?? AuthService();
     _groupService = widget.groupService ?? GroupService();
+    _reminderService = widget.reminderService ?? ReminderService();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshReminders(requestPermissionIfNeeded: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshReminders();
+    }
   }
 
   User? get _currentUser => _authService.currentUser;
+
+  Future<void> _refreshReminders({
+    bool requestPermissionIfNeeded = false,
+  }) async {
+    final userId = _currentUser?.uid;
+    if (userId == null || userId.isEmpty) return;
+
+    final granted = await _reminderService.refreshAllGroups(
+      userId: userId,
+      groupService: _groupService,
+      requestPermissionIfNeeded: requestPermissionIfNeeded,
+    );
+
+    if (!granted && requestPermissionIfNeeded && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Notification permission was denied. Enable notifications in '
+            'device settings to receive payment reminders.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openReminderSettings() async {
+    final userId = _currentUser?.uid;
+    if (userId == null || userId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Sign in to manage your personal reminder settings'),
+        ),
+      );
+      return;
+    }
+
+    ReminderSettings initial;
+    try {
+      initial = await _groupService.getReminderSettings(userId);
+    } catch (_) {
+      initial = const ReminderSettings();
+    }
+
+    if (!mounted) return;
+
+    final updated = await showDialog<ReminderSettings>(
+      context: context,
+      builder: (_) => _ReminderSettingsDialog(
+        initialSettings: initial,
+        permissionDenied: !_reminderService.hasPermission,
+      ),
+    );
+
+    if (!mounted || updated == null) return;
+
+    try {
+      await _groupService.saveReminderSettings(
+        userId: userId,
+        settings: updated,
+      );
+
+      bool granted = true;
+      if (updated.enabled) {
+        granted = await _reminderService.requestPermission();
+      }
+      await _refreshReminders();
+
+      if (!mounted) return;
+      if (updated.enabled && !granted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Reminder saved, but notifications are blocked. Enable '
+              'notification permission in device settings.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              updated.enabled
+                  ? 'Reminders set to every ${updated.intervalDays} '
+                      '${updated.intervalDays == 1 ? 'day' : 'days'}'
+                  : 'Payment reminders turned off',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save reminder settings: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   // -----------------------------------------------------------------
   //  Create a group
@@ -196,6 +320,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
             title: const Text('Groups'),
             actions: [
               IconButton(
+                tooltip: 'Payment reminders',
+                onPressed: _openReminderSettings,
+                icon: const Icon(Icons.notifications_outlined),
+              ),
+              IconButton(
                 tooltip: 'Join a group',
                 onPressed: _joinGroupWithToken,
                 icon: const Icon(Icons.login),
@@ -205,7 +334,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 onPressed: _createGroup,
                 icon: const Icon(Icons.add),
               ),
-              _UserAccountButton(authService: _authService),
+              _UserAccountButton(
+                authService: _authService,
+                onBeforeSignOut: _reminderService.clearOnSignOut,
+              ),
               const SizedBox(width: 8),
             ],
           ),
@@ -333,6 +465,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                     group: group,
                                     groupService: _groupService,
                                     authService: _authService,
+                                    reminderService: _reminderService,
                                   ),
                                 ),
                               );
@@ -353,9 +486,13 @@ class _GroupsScreenState extends State<GroupsScreen> {
 }
 
 class _UserAccountButton extends StatelessWidget {
-  const _UserAccountButton({required this.authService});
+  const _UserAccountButton({
+    required this.authService,
+    this.onBeforeSignOut,
+  });
 
   final AuthService authService;
+  final Future<void> Function()? onBeforeSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -388,6 +525,9 @@ class _UserAccountButton extends StatelessWidget {
       ),
       onSelected: (value) async {
         if (value == 'sign_out') {
+          if (onBeforeSignOut != null) {
+            await onBeforeSignOut!();
+          }
           await authService.signOut();
         }
       },
@@ -581,6 +721,178 @@ class _EmptyGroups extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ReminderSettingsDialog extends StatefulWidget {
+  const _ReminderSettingsDialog({
+    required this.initialSettings,
+    required this.permissionDenied,
+  });
+
+  final ReminderSettings initialSettings;
+  final bool permissionDenied;
+
+  @override
+  State<_ReminderSettingsDialog> createState() =>
+      _ReminderSettingsDialogState();
+}
+
+class _ReminderSettingsDialogState extends State<_ReminderSettingsDialog> {
+  static const _presetDays = [7, 14, 30];
+
+  final _formKey = GlobalKey<FormState>();
+  late bool _enabled;
+  late int _selectedDays;
+  late bool _isCustom;
+  late final TextEditingController _customController;
+
+  @override
+  void initState() {
+    super.initState();
+    _enabled = widget.initialSettings.enabled;
+    _selectedDays = widget.initialSettings.intervalDays;
+    _isCustom = !_presetDays.contains(_selectedDays);
+    _customController = TextEditingController(
+      text: _selectedDays.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_enabled && _isCustom) {
+      if (!_formKey.currentState!.validate()) return;
+      _selectedDays = int.parse(_customController.text.trim());
+    }
+
+    Navigator.pop(
+      context,
+      ReminderSettings(
+        enabled: _enabled,
+        intervalDays: _selectedDays,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Payment reminders'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Remind me about unpaid balances'),
+                subtitle: Text(
+                  _enabled
+                      ? 'Every $_selectedDays ${_selectedDays == 1 ? 'day' : 'days'}'
+                      : 'Reminders are turned off',
+                ),
+                value: _enabled,
+                onChanged: (val) => setState(() => _enabled = val),
+              ),
+              if (widget.permissionDenied) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    border: Border.all(color: Colors.orange.shade200),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Notifications are currently blocked on this device. '
+                    'Enable them in Android Settings to see reminders.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade900,
+                    ),
+                  ),
+                ),
+              ],
+              if (_enabled) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Reminder interval',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final days in _presetDays)
+                      ChoiceChip(
+                        label: Text('$days days'),
+                        selected: !_isCustom && _selectedDays == days,
+                        onSelected: (_) {
+                          setState(() {
+                            _isCustom = false;
+                            _selectedDays = days;
+                          });
+                        },
+                      ),
+                    ChoiceChip(
+                      label: const Text('Custom'),
+                      selected: _isCustom,
+                      onSelected: (_) {
+                        setState(() {
+                          _isCustom = true;
+                          _customController.text = _selectedDays.toString();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                if (_isCustom) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _customController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom days (1–365)',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Enter number of days';
+                      }
+                      final parsed = int.tryParse(val.trim());
+                      if (parsed == null ||
+                          parsed < ReminderSettings.minIntervalDays ||
+                          parsed > ReminderSettings.maxIntervalDays) {
+                        return 'Enter a whole number from 1 to 365';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
