@@ -840,6 +840,251 @@ void main() {
     expect(find.text('+250'), findsOneWidget);
     expect(find.text('Partial (250 left)'), findsOneWidget);
   });
+
+  test('ReminderService uses 14-day default and avoids duplicates', () async {
+    final fixedNow = DateTime(2026, 11, 27, 10, 0);
+    final scheduler = _FakeNotificationScheduler();
+    final reminderService = ReminderService(
+      scheduler: scheduler,
+      now: () => fixedNow,
+    );
+    final groupService = GroupService();
+
+    final group = await groupService.createGroup(
+      name: 'Trip',
+      kind: GroupKind.trip,
+      creatorId: 'user_a',
+    );
+    final token = await groupService.createInvitation(
+      groupId: group.id,
+      creatorId: 'user_a',
+    );
+    await groupService.joinGroupWithToken(token, 'user_b');
+
+    // user_a owes user_b 100
+    await groupService.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 100,
+      creatorId: 'user_a',
+    );
+
+    final settings = await groupService.getReminderSettings('user_a');
+    expect(settings.enabled, isTrue);
+    expect(settings.intervalDays, 14);
+
+    // Refresh for debtor (user_a) -> schedules 14 days from fixedNow
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled.length, 1);
+    final entry = scheduler.scheduled.values.first;
+    expect(entry.scheduledAt, fixedNow.add(const Duration(days: 14)));
+    expect(entry.body, contains('100'));
+
+    // Refresh again with same balance -> no duplicate schedule call
+    final countBefore = scheduler.scheduleCalls;
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduleCalls, countBefore);
+
+    // Creditor (user_b) is owed money, so user_b must NOT get a payment reminder
+    await reminderService.refreshAllGroups(
+      userId: 'user_b',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduleCalls, countBefore);
+  });
+
+  test('ReminderService supports custom interval, off, and cancels when settled',
+      () async {
+    final fixedNow = DateTime(2026, 11, 27, 10, 0);
+    final scheduler = _FakeNotificationScheduler();
+    final reminderService = ReminderService(
+      scheduler: scheduler,
+      now: () => fixedNow,
+    );
+    final groupService = GroupService();
+
+    final group = await groupService.createGroup(
+      name: 'Roommates',
+      kind: GroupKind.shared,
+      creatorId: 'user_a',
+    );
+    final token = await groupService.createInvitation(
+      groupId: group.id,
+      creatorId: 'user_a',
+    );
+    await groupService.joinGroupWithToken(token, 'user_b');
+
+    await groupService.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 200,
+      creatorId: 'user_a',
+    );
+
+    // Custom 5-day interval
+    await groupService.saveReminderSettings(
+      userId: 'user_a',
+      settings: const ReminderSettings(enabled: true, intervalDays: 5),
+    );
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled.length, 1);
+    expect(
+      scheduler.scheduled.values.first.scheduledAt,
+      fixedNow.add(const Duration(days: 5)),
+    );
+
+    // Pending payment does NOT cancel the reminder
+    final payment = await groupService.requestPayment(
+      groupId: group.id,
+      payerId: 'user_a',
+      recipientId: 'user_b',
+      amount: 200,
+    );
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled.length, 1);
+
+    // Confirmed payment settles balance -> reminder is cancelled
+    await groupService.confirmPayment(
+      groupId: group.id,
+      paymentId: payment.id,
+      userId: 'user_b',
+    );
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled, isEmpty);
+
+    // Add another debt, then turn reminders OFF -> cancels all
+    await groupService.addDebt(
+      groupId: group.id,
+      debtorId: 'user_a',
+      creditorId: 'user_b',
+      amount: 50,
+      creatorId: 'user_a',
+    );
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled.length, 1);
+
+    await groupService.saveReminderSettings(
+      userId: 'user_a',
+      settings: const ReminderSettings(enabled: false, intervalDays: 5),
+    );
+    await reminderService.refreshAllGroups(
+      userId: 'user_a',
+      groupService: groupService,
+    );
+    expect(scheduler.scheduled, isEmpty);
+  });
+
+  testWidgets('Member can open reminder settings and save custom interval',
+      (tester) async {
+    final groupService = GroupService();
+    final scheduler = _FakeNotificationScheduler();
+    final reminderService = ReminderService(scheduler: scheduler);
+    final auth = _TestAuthService(
+      testUser: _FakeUser(uid: 'user_a', displayName: 'Nimsara'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GroupsScreen(
+          authService: auth,
+          groupService: groupService,
+          reminderService: reminderService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Open Payment reminders dialog
+    await tester.tap(find.byTooltip('Payment reminders'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Payment reminders'), findsOneWidget);
+    expect(find.text('Every 14 days'), findsOneWidget);
+
+    // Choose Custom and enter 10 days
+    await tester.tap(find.text('Custom'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextFormField), '10');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final saved = await groupService.getReminderSettings('user_a');
+    expect(saved.enabled, isTrue);
+    expect(saved.intervalDays, 10);
+  });
+}
+
+class _ScheduledEntry {
+  _ScheduledEntry({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.scheduledAt,
+  });
+
+  final int id;
+  final String title;
+  final String body;
+  final DateTime scheduledAt;
+}
+
+class _FakeNotificationScheduler implements NotificationScheduler {
+  final Map<int, _ScheduledEntry> scheduled = {};
+  int scheduleCalls = 0;
+  bool permissionGranted = true;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<bool> requestPermission() async => permissionGranted;
+
+  @override
+  Future<void> scheduleReminder({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledAt,
+  }) async {
+    scheduleCalls++;
+    scheduled[id] = _ScheduledEntry(
+      id: id,
+      title: title,
+      body: body,
+      scheduledAt: scheduledAt,
+    );
+  }
+
+  @override
+  Future<void> cancelReminder(int id) async {
+    scheduled.remove(id);
+  }
+
+  @override
+  Future<void> cancelAll() async {
+    scheduled.clear();
+  }
 }
 
 class _FakeUser implements User {

@@ -94,6 +94,8 @@ We protect user data with Firestore rules:
   - **Create**: Only the named payer (a group member) can send a `'pending'` payment request to another group member for a positive amount.
   - **Update**: Only `'pending'` payments can be updated. The named recipient can confirm a payment (`'confirmed'`), and the named payer can cancel their own request (`'cancelled'`). No one else can change them, and confirmed or cancelled payments cannot be modified again.
   - **Delete**: Payment deletion is disabled so the group keeps a permanent history.
+- **Users (`users/{userId}`)**:
+  - **Read / Write**: Each signed-in user can read and update only their own personal reminder preference (`reminderEnabled` and `reminderIntervalDays` between 1 and 365). No other user can access it.
 
 ### Firebase Console steps to create the Firestore database
 Before Firestore can accept data in production, it must be created once in your Firebase Console:
@@ -148,6 +150,22 @@ The app automatically calculates the net balance for each group member from all 
 - **Debts List**: Displays all recorded debts with debtor, creditor, amount, optional note, and status (**Open**, **Partial (amount left)**, or **Settled**). Original debt records are never deleted.
 - **Payment history**: Lists all confirmed and cancelled payments for the group.
 - **Add Debt Dialog**: Lets users select who owes and who receives (validating that debtor and creditor are different members), enter a positive amount, and add an optional note. If a group has fewer than 2 members, it prompts the user to invite a member first.
+
+## Personal Payment Reminders (Local Notifications)
+
+### How reminders work
+- Each signed-in member has their own reminder setting stored in Firestore at `users/{userId}`.
+- **Default interval**: **14 days**.
+- Tap the bell icon in the top bar of the **Groups** screen to choose **7 days**, **14 days**, **30 days**, enter a **Custom** number of days (1–365), or turn reminders **Off**.
+- You are reminded **only** about groups where **you** still owe money. If your balance is zero, if you are owed money, or if a debt has been settled (confirmed payment), the reminder is automatically cancelled.
+- Pending payment requests do **not** cancel reminders until the recipient confirms the payment.
+- Reminders automatically refresh when the app starts, when it returns to the foreground, when debts or payments change, and when you save new reminder settings.
+- On Android 13+, the app asks for notification permission. If permission is denied, the app shows a clear message explaining how to turn notifications on in device settings.
+
+### Limit of local device reminders
+Because reminders use **local device notifications** (no paid cloud server or push notifications):
+- If another group member adds a debt or confirms a payment **while your app is completely closed**, your phone will not know about that change until the next time you open or resume the app.
+- Once you open or resume the app, it syncs with Firestore and immediately schedules, updates, or cancels your local reminders.
 
 ## Learning notes
 
